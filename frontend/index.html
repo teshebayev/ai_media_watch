@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FakeFace FinGuard — консоль аналитика</title>
+<style>
+  :root{
+    --bg:#0b0f17; --bg2:#111726; --panel:#161e30; --line:#243047;
+    --txt:#e6ecf5; --muted:#8da2c0; --accent:#4da3ff; --accent2:#7c5cff;
+    --green:#35d07f; --yellow:#f5c451; --orange:#ff9f43; --red:#ff5d6c;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);min-height:100vh}
+  a{color:var(--accent)}
+  header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;
+    padding:12px 22px;background:rgba(11,15,23,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  .brand{font-weight:700;letter-spacing:.4px}.brand span{color:var(--accent)}
+  header .spacer{flex:1}
+  .api{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+  .api input{background:var(--bg2);border:1px solid var(--line);color:var(--txt);
+    border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:12px;width:210px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+  .wrap{max-width:1100px;margin:0 auto;padding:22px}
+  .tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+  .tab{padding:9px 16px;border:1px solid var(--line);background:var(--panel);border-radius:10px;
+    cursor:pointer;font-size:14px;color:var(--muted)}
+  .tab.active{color:var(--txt);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .view{display:none}.view.active{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px}
+  h2{font-size:18px;margin-bottom:12px}
+  label.fld{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  textarea,input.text{width:100%;background:var(--bg2);border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:12px;font-family:var(--sans);font-size:15px;resize:vertical}
+  textarea{min-height:120px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  button{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;border:none;
+    border-radius:10px;padding:11px 20px;font-size:14px;font-weight:600;cursor:pointer}
+  button.ghost{background:var(--bg2);border:1px solid var(--line);color:var(--txt);font-weight:500}
+  button:disabled{opacity:.5;cursor:default}
+  .gauge{display:flex;align-items:center;gap:18px;margin:6px 0 16px}
+  .score{font-size:48px;font-weight:800;font-family:var(--mono);line-height:1}
+  .pill{display:inline-block;padding:4px 14px;border-radius:20px;font-family:var(--mono);font-weight:700;font-size:14px}
+  .pill.low{background:rgba(53,208,127,.16);color:var(--green)}
+  .pill.medium{background:rgba(245,196,81,.16);color:var(--yellow)}
+  .pill.high{background:rgba(255,159,67,.16);color:var(--orange)}
+  .pill.critical{background:rgba(255,93,108,.16);color:var(--red)}
+  .bar{height:10px;border-radius:6px;background:var(--bg2);overflow:hidden;flex:1;min-width:160px;border:1px solid var(--line)}
+  .bar>div{height:100%;background:linear-gradient(90deg,var(--green),var(--yellow),var(--orange),var(--red))}
+  .sig{display:flex;justify-content:space-between;padding:7px 12px;border:1px solid var(--line);
+    border-radius:8px;margin:5px 0;font-family:var(--mono);font-size:13px;background:var(--bg2)}
+  .sig b{color:var(--accent)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+  .chip{font-family:var(--mono);font-size:12px;padding:4px 10px;border-radius:18px;border:1px solid var(--line);background:var(--bg2);color:var(--muted)}
+  .chip b{color:var(--txt)}
+  .sub{font-size:13px;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:1px;font-family:var(--mono)}
+  .ev{font-style:italic;color:var(--txt);border-left:2px solid var(--accent);padding-left:10px;margin:4px 0}
+  .rec{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--muted);font-size:14px;margin-top:14px}
+  .muted{color:var(--muted)}.mono{font-family:var(--mono)}
+  .err{color:var(--red);font-family:var(--mono);font-size:13px;margin-top:10px;white-space:pre-wrap}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .examples{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .examples .chip{cursor:pointer}.examples .chip:hover{border-color:var(--accent);color:var(--txt)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--accent);font-family:var(--mono);font-size:12px;text-transform:uppercase}
+  .neighbor{padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin:6px 0;background:var(--bg2)}
+  .neighbor .meta{font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:4px}
+  #graphCanvas{height:520px;border:1px solid var(--line);border-radius:12px;background:#0a0e16}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:12px;height:12px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">FakeFace<span>FinGuard</span> · консоль аналитика</div>
+  <div class="spacer"></div>
+  <div class="api">
+    <span class="dot" id="healthDot" title="статус API"></span>
+    API:
+    <input id="apiBase" value="http://localhost:8080" spellcheck="false">
+    <button class="ghost" style="padding:6px 12px" onclick="checkHealth()">проверить</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-view="text">📝 Текст</div>
+    <div class="tab" data-view="url">🔗 Ссылка</div>
+    <div class="tab" data-view="audio">🎧 Аудио-звонок</div>
+    <div class="tab" data-view="graph">🕸️ Shadow Graph</div>
+    <div class="tab" data-view="similar">🔎 Похожие кейсы</div>
+    <div class="tab" data-view="history">📚 История / Статистика</div>
+  </div>
+
+  <!-- TEXT -->
+  <section class="view active" id="view-text">
+    <div class="card">
+      <h2>Анализ поста / ссылки / текста</h2>
+      <label class="fld">Текст для анализа</label>
+      <textarea id="txtInput">Регистрируйся на casino-x.com промокод PROMO777, бонус на депозит! Я поднял 500 000 ₸. Пиши @bonus_manager</textarea>
+      <div class="examples" id="txtExamples"></div>
+      <div class="row">
+        <button onclick="analyzeText()" id="txtBtn">Анализировать</button>
+        <span class="muted" id="txtStatus"></span>
+      </div>
+      <div id="txtErr" class="err"></div>
+    </div>
+    <div id="txtReport"></div>
+  </section>
+
+  <!-- URL -->
+  <section class="view" id="view-url">
+    <div class="card">
+      <h2>Анализ по ссылке (YouTube / пост / HTML-страница)</h2>
+      <label class="fld">URL</label>
+      <input class="text" id="urlInput" placeholder="https://www.youtube.com/watch?v=… или https://…">
+      <div class="examples" id="urlExamples"></div>
+      <div class="row">
+        <button onclick="analyzeUrl()" id="urlBtn">Загрузить и проанализировать</button>
+        <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="urlDeep"> глубокий анализ (OCR кадров видео)
+        </label>
+        <span class="muted" id="urlStatus"></span>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px">
+        Видео (YouTube/Instagram/TikTok): название, описание, авто-субтитры и <b>OCR превью</b> — без скачивания.
+        «Глубокий анализ» скачивает низкокачественную копию и OCR-ит кадры (промокод на экране, а не в описании) — медленнее.
+        Для страниц — видимый текст и og-метаданные. Только публичные страницы, GET (ТЗ §0).
+      </div>
+      <div id="urlErr" class="err"></div>
+    </div>
+    <div id="urlExtracted"></div>
+    <div id="urlReport"></div>
+  </section>
+
+  <!-- AUDIO -->
+  <section class="view" id="view-audio">
+    <div class="card">
+      <h2>Анализ аудио-звонка (Whisper → этапы → риск)</h2>
+      <label class="fld">WAV-файл звонка (например data/raw/kz_calls/kzcall_ru_0001.wav)</label>
+      <input class="text" type="file" id="audioFile" accept="audio/*">
+      <div class="row">
+        <button onclick="analyzeAudio()" id="audioBtn">Загрузить и проанализировать</button>
+        <span class="muted" id="audioStatus"></span>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px">ASR на CPU занимает несколько секунд. Казахский Whisper small распознаёт слабо (см. docs/asr_kk_findings.md) — для kk надёжнее текстовый ввод.</div>
+      <div id="audioErr" class="err"></div>
+    </div>
+    <div id="audioReport"></div>
+  </section>
+
+  <!-- GRAPH -->
+  <section class="view" id="view-graph">
+    <div class="card">
+      <h2>Shadow Graph — связи и повторяемость</h2>
+      <label class="fld">Домен / Telegram-ник / промокод</label>
+      <input class="text" id="graphInput" value="casino-x.com">
+      <div class="examples" id="graphExamples"></div>
+      <div class="row">
+        <button onclick="lookupGraph()" id="graphBtn">Показать связи</button>
+        <button class="ghost" onclick="showOverview()" id="graphOvBtn">Обзор кластеров</button>
+        <span class="muted" id="graphStatus"></span>
+      </div>
+      <div id="graphErr" class="err"></div>
+    </div>
+    <div id="graphReport"></div>
+    <div class="card" id="graphVizCard" style="display:none">
+      <h2 id="graphVizTitle">Граф</h2>
+      <div id="graphCanvas"></div>
+      <div class="legend" id="graphLegend"></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Перетаскивай узлы, колесо — масштаб. Источники (Video/Post/Call) — квадраты, сущности — круги.</div>
+    </div>
+  </section>
+
+  <!-- SIMILAR -->
+  <section class="view" id="view-similar">
+    <div class="card">
+      <h2>Поиск похожих известных scam-кейсов (Qdrant)</h2>
+      <label class="fld">Текст запроса</label>
+      <input class="text" id="simInput" value="инвестируй и получай гарантированный доход в неделю">
+      <div class="row"><button onclick="searchSimilar()" id="simBtn">Найти похожие</button><span class="muted" id="simStatus"></span></div>
+      <div id="simErr" class="err"></div>
+    </div>
+    <div id="simReport"></div>
+  </section>
+
+  <!-- HISTORY / STATS -->
+  <section class="view" id="view-history">
+    <div class="card">
+      <h2>Журнал анализов и статистика (Postgres)</h2>
+      <div id="statsBox" class="chips"></div>
+      <div class="row">
+        <label class="muted small">risk_level:
+          <select id="histLevel" class="text" style="width:auto;display:inline-block">
+            <option value="">все</option><option>low</option><option>medium</option>
+            <option>high</option><option>critical</option>
+          </select>
+        </label>
+        <button onclick="loadHistory()" id="histBtn">Обновить</button>
+        <span class="muted" id="histStatus"></span>
+      </div>
+      <div id="histErr" class="err"></div>
+    </div>
+    <div id="histList"></div>
+    <div id="histDetail"></div>
+  </section>
+</div>
+
+<script src="vendor/vis-network.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const api = () => $('apiBase').value.replace(/\/$/, '');
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// tabs
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $('view-' + t.dataset.view).classList.add('active');
+  if (t.dataset.view === 'history') loadHistory();
+});
+
+// examples
+const TXT_EXAMPLES = [
+  ['Казино', 'Регистрируйся на casino-x.com промокод PROMO777, бонус на депозит! Я поднял 500 000 ₸. Пиши @bonus_manager'],
+  ['eGov-звонок', 'Здравствуйте, вам пришла доставка от eGov. Назовите код из SMS. Теперь с вами говорит сотрудник КНБ, переведите деньги на безопасный счёт, никому не говорите.'],
+  ['Пирамида', 'Инвестируй 10 000 ₸ и получай 20% в неделю. Пригласи друзей, повышай уровень. Пиши @invest_guru_kz'],
+  ['Фишинг', 'Ваш аккаунт заблокирован. Перейдите на kaspi-bonus.click и подтвердите данные карты и код из SMS.'],
+  ['Legit', 'Депозит в Halyk Bank под 14% годовых, страхование вкладов до 20 млн ₸. Оформление в приложении.'],
+];
+$('txtExamples').innerHTML = TXT_EXAMPLES.map((e,i) => `<span class="chip" onclick="setTxt(${i})">${esc(e[0])}</span>`).join('');
+window.setTxt = i => $('txtInput').value = TXT_EXAMPLES[i][1];
+$('graphExamples').innerHTML = ['casino-x.com','PROMO777','@bonus_manager','invest-pro.top']
+  .map(v => `<span class="chip" onclick="$('graphInput').value='${v}'">${v}</span>`).join('');
+const URL_EXAMPLES = ['https://www.youtube.com/watch?v=dQw4w9WgXcQ','https://example.com','https://stop-piramida.kz/'];
+$('urlExamples').innerHTML = URL_EXAMPLES.map(v=>`<span class="chip" onclick="$('urlInput').value='${v}'">${esc(v)}</span>`).join('');
+
+async function checkHealth(){
+  const dot = $('healthDot');
+  try{
+    const r = await fetch(api() + '/health'); const j = await r.json();
+    const ok = j.api === 'ok';
+    dot.className = 'dot ' + (ok ? 'ok' : 'bad');
+    dot.title = `api:${j.api} vllm:${j.vllm} qdrant:${j.qdrant} neo4j:${j.neo4j}`;
+  }catch(e){ dot.className = 'dot bad'; dot.title = 'API недоступен: ' + e.message; }
+}
+
+function riskGauge(level, score){
+  return `<div class="gauge">
+    <div class="score">${score ?? '—'}</div>
+    <div style="flex:1">
+      <span class="pill ${level}">${(level||'').toUpperCase()}</span>
+      <div class="bar" style="margin-top:8px"><div style="width:${Math.max(0,Math.min(100,score||0))}%"></div></div>
+    </div></div>`;
+}
+function entityChips(e){
+  const groups = [['domains','домены'],['telegram_usernames','telegram'],['promo_codes','промокоды'],
+    ['money_amounts','суммы'],['crypto_wallets','кошельки'],['phones','телефоны'],['organizations','организации'],['urls','url']];
+  let html = '';
+  for(const [k,lbl] of groups){ const v = (e?.[k]||[]); if(v.length) html += v.map(x=>`<span class="chip"><b>${esc(lbl)}:</b> ${esc(x)}</span>`).join(''); }
+  return html || '<span class="muted">сущностей не найдено</span>';
+}
+function reportCard(r){
+  return `<div class="card">
+    <h2>Analyst Report <span class="muted mono" style="font-size:13px">#${esc(r.id)}</span></h2>
+    ${riskGauge(r.risk_level, r.risk_score)}
+    ${r.fraud_type ? `<div class="mono" style="margin-bottom:10px">fraud_type: <b style="color:var(--accent)">${esc(r.fraud_type)}</b></div>`:''}
+    <div class="sub">Сработавшие сигналы</div>
+    ${(r.triggered_signals||[]).map(s=>`<div class="sig"><span>${esc(s.signal)}</span><b>+${s.weight}</b></div>`).join('') || '<span class="muted">нет</span>'}
+    <div class="sub">Сущности</div><div class="chips">${entityChips(r.entities)}</div>
+    ${(r.evidence_spans||[]).length ? `<div class="sub">Доказательства</div>${r.evidence_spans.map(e=>`<div class="ev">«${esc(e)}»</div>`).join('')}`:''}
+    <div class="rec">${esc(r.recommendation||'')}</div>
+  </div>`;
+}
+function busy(btn,status,on,msg){ btn.disabled=on; status.innerHTML = on ? `<span class="spinner"></span> ${msg||'обработка…'}` : ''; }
+
+async function analyzeText(){
+  const btn=$('txtBtn'),st=$('txtStatus'); $('txtErr').textContent='';
+  busy(btn,st,true);
+  try{
+    const r = await fetch(api()+'/analyze/text',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:'ui_'+Date.now(),text:$('txtInput').value})});
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+await r.text());
+    $('txtReport').innerHTML = reportCard(await r.json());
+  }catch(e){ $('txtErr').textContent='Ошибка: '+e.message; }
+  busy(btn,st,false);
+}
+
+async function analyzeUrl(){
+  const btn=$('urlBtn'),st=$('urlStatus'); $('urlErr').textContent='';
+  const url=$('urlInput').value.trim();
+  if(!url){ $('urlErr').textContent='Введите URL'; return; }
+  const deep=$('urlDeep').checked;
+  busy(btn,st,true, deep?'скачиваю кадры и распознаю…':'загружаю и извлекаю текст…');
+  try{
+    const r=await fetch(api()+'/analyze/url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,deep})});
+    if(!r.ok){ const t=await r.text(); throw new Error('HTTP '+r.status+' '+t); }
+    const j=await r.json(); const e=j.extracted;
+    $('urlExtracted').innerHTML = `<div class="card">
+      <div class="sub">Извлечено со страницы</div>
+      <div class="chips">
+        <span class="chip"><b>платформа:</b> ${esc(e.platform)}</span>
+        <span class="chip"><b>тип:</b> ${esc(e.modality)}</span>
+        <span class="chip"><b>язык:</b> ${esc(e.language)}</span>
+        ${e.channel?`<span class="chip"><b>канал:</b> ${esc(e.channel)}</span>`:''}
+        <span class="chip"><b>субтитры:</b> ${e.has_transcript?'есть':'нет'}</span>
+      </div>
+      ${e.title?`<div class="sub">Заголовок</div><div>${esc(e.title)}</div>`:''}
+      ${e.ocr_text?`<div class="sub">OCR с превью/кадров</div><div class="ev">${esc(e.ocr_text)}</div>`:''}
+      ${e.ocr_note?`<div class="muted" style="color:var(--yellow);font-size:13px;margin-top:8px">⚠ ${esc(e.ocr_note)}</div>`:''}
+      <div class="sub">Извлечённый текст (превью)</div>
+      <div class="ev">${esc(j.combined_text_preview||'')}…</div>
+      <div class="muted mono" style="font-size:12px;margin-top:8px">${esc(e.url)}</div>
+    </div>`;
+    $('urlReport').innerHTML = reportCard(j.report);
+  }catch(err){ $('urlErr').textContent='Ошибка: '+err.message; $('urlExtracted').innerHTML=''; $('urlReport').innerHTML=''; }
+  busy(btn,st,false);
+}
+
+async function analyzeAudio(){
+  const btn=$('audioBtn'),st=$('audioStatus'); $('audioErr').textContent='';
+  const f=$('audioFile').files[0];
+  if(!f){ $('audioErr').textContent='Выберите WAV-файл'; return; }
+  busy(btn,st,true,'Whisper транскрибирует…');
+  try{
+    const fd=new FormData(); fd.append('file',f);
+    const r=await fetch(api()+'/analyze/audio',{method:'POST',body:fd});
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+await r.text());
+    const j=await r.json();
+    $('audioReport').innerHTML = `<div class="card">
+      <div class="sub">Транскрипт (Whisper)</div><div class="ev">${esc(j.transcript||'—')}</div>
+      ${(j.call_stages||[]).length?`<div class="sub">Этапы звонка</div><div class="chips">${j.call_stages.map(s=>`<span class="chip"><b>${esc(s)}</b></span>`).join('')}</div>`:''}
+      </div>` + reportCard(j.report);
+  }catch(e){ $('audioErr').textContent='Ошибка: '+e.message; }
+  busy(btn,st,false);
+}
+
+// Палитра по типам узлов
+const NODE_STYLE = {
+  Domain:          {color:'#ff5d6c', shape:'dot'},
+  TelegramUsername:{color:'#4da3ff', shape:'dot'},
+  PromoCode:       {color:'#7c5cff', shape:'dot'},
+  Wallet:          {color:'#22d3ee', shape:'dot'},
+  Organization:    {color:'#f5c451', shape:'dot'},
+  RiskSignal:      {color:'#64748b', shape:'dot'},
+  Video:           {color:'#35d07f', shape:'box'},
+  Post:            {color:'#2dd4a7', shape:'box'},
+  Call:            {color:'#9ae6b4', shape:'box'},
+};
+let _network = null;
+
+function renderNetwork(data, title){
+  $('graphVizCard').style.display='';
+  $('graphVizTitle').textContent = title;
+  const present = new Set();
+  const nodes = data.nodes.map(n=>{
+    const st = NODE_STYLE[n.type] || {color:'#8da2c0', shape:'dot'};
+    present.add(n.type);
+    const isSource = ['Video','Post','Call'].includes(n.type);
+    return {
+      id:n.id,
+      label: n.label.length>22 ? n.label.slice(0,20)+'…' : n.label,
+      title: `${n.type}: ${n.label}` + (n.risk_level?` · ${n.risk_level}`:''),
+      color:{background:st.color, border:st.color},
+      shape:st.shape,
+      size: isSource ? 10 : (n.type==='RiskSignal'?8:16),
+      font:{color:'#e6ecf5', size:12},
+    };
+  });
+  const edges = data.edges.map(e=>({
+    from:e.from, to:e.to, label:'', title:e.label, arrows:'to',
+    color:{color:'#243047', highlight:'#4da3ff'}, width:1,
+  }));
+  // легенда
+  $('graphLegend').innerHTML = [...present].map(t=>{
+    const c=(NODE_STYLE[t]||{}).color||'#8da2c0';
+    return `<span><i style="background:${c}"></i>${t}</span>`;
+  }).join('');
+
+  const container=$('graphCanvas');
+  if(_network) _network.destroy();
+  _network = new vis.Network(container, {nodes, edges}, {
+    physics:{stabilization:{iterations:120}, barnesHut:{springLength:120, gravitationalConstant:-4000}},
+    interaction:{hover:true, tooltipDelay:120},
+    nodes:{borderWidth:0},
+  });
+}
+
+async function fetchNetwork(params){
+  const r=await fetch(api()+'/graph/network'+params);
+  if(!r.ok) throw new Error('HTTP '+r.status+' '+await r.text());
+  return r.json();
+}
+
+async function lookupGraph(){
+  const btn=$('graphBtn'),st=$('graphStatus'); $('graphErr').textContent='';
+  busy(btn,st,true,'строю граф…');
+  try{
+    const val=$('graphInput').value;
+    const j=await (await fetch(api()+'/graph/entity/'+encodeURIComponent(val))).json();
+    $('graphReport').innerHTML = `<div class="card">
+      <h2>${esc(j.value)}</h2>
+      <div class="gauge"><div class="score">${j.uses}</div>
+        <div><div class="muted">упоминаний в источниках</div>
+        ${j.graph_entity_reuse?'<span class="pill high">graph_entity_reuse · повторяется</span>':'<span class="pill low">уникально</span>'}</div></div>
+      ${j.graph_entity_reuse?'<div class="rec">Сущность встречается в ≥2 источниках → сигнал <b>graph_entity_reuse</b> (+25 к риск-скорингу).</div>':''}
+    </div>`;
+    const net=await fetchNetwork('?limit=120&value='+encodeURIComponent(val));
+    if(net.nodes.length) renderNetwork(net, `Кластер вокруг «${val}» · ${net.nodes.length} узлов, ${net.edges.length} связей`);
+    else { $('graphVizCard').style.display='none'; }
+  }catch(e){ $('graphErr').textContent='Ошибка: '+e.message; }
+  busy(btn,st,false);
+}
+
+async function showOverview(){
+  const btn=$('graphOvBtn'),st=$('graphStatus'); $('graphErr').textContent='';
+  busy(btn,st,true,'строю обзор…');
+  try{
+    const net=await fetchNetwork('?limit=200');
+    $('graphReport').innerHTML='';
+    renderNetwork(net, `Обзор топ-кластеров · ${net.nodes.length} узлов, ${net.edges.length} связей`);
+  }catch(e){ $('graphErr').textContent='Ошибка: '+e.message; }
+  busy(btn,st,false);
+}
+
+async function searchSimilar(){
+  const btn=$('simBtn'),st=$('simStatus'); $('simErr').textContent='';
+  busy(btn,st,true,'поиск в Qdrant…');
+  try{
+    const r=await fetch(api()+'/search/similar?limit=5&text='+encodeURIComponent($('simInput').value));
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+await r.text());
+    const j=await r.json();
+    const flag = j.similar_to_known_scam ? '<span class="pill high">similar_to_known_scam</span>' : '<span class="pill low">нет близких scam</span>';
+    $('simReport').innerHTML = `<div class="card"><h2>Похожие кейсы ${flag}</h2>` +
+      (j.neighbors||[]).map(n=>{const p=n.payload||{};return `<div class="neighbor">
+        <div class="meta">score ${n.score.toFixed(3)} · ${esc(p.label)}/${esc(p.fraud_type)} · ${esc(p.language)}</div>
+        ${esc((p.combined_text||'').slice(0,160))}</div>`;}).join('') + '</div>';
+  }catch(e){ $('simErr').textContent='Ошибка: '+e.message; }
+  busy(btn,st,false);
+}
+
+// ---------- История / Статистика (Postgres) ----------
+const LEVEL_ICON = {low:'🟢',medium:'🟡',high:'🟠',critical:'🔴'};
+async function loadHistory(){
+  const btn=$('histBtn'),st=$('histStatus'); $('histErr').textContent=''; $('histDetail').innerHTML='';
+  busy(btn,st,true,'загрузка…');
+  try{
+    const stats=await (await fetch(api()+'/stats')).json();
+    $('statsBox').innerHTML =
+      `<span class="chip"><b>всего:</b> ${stats.total_sessions}</span>`+
+      `<span class="chip"><b>проверено:</b> ${stats.reviewed_sessions}</span>`+
+      Object.entries(stats.by_risk_level||{}).map(([k,v])=>`<span class="chip">${LEVEL_ICON[k]||''} ${esc(k)}: ${v}</span>`).join('')+
+      Object.entries(stats.top_fraud_types||{}).slice(0,6).map(([k,v])=>`<span class="chip">${esc(k)}: ${v}</span>`).join('');
+    const lvl=$('histLevel').value;
+    const r=await fetch(api()+'/sessions?limit=50'+(lvl?'&risk_level='+lvl:''));
+    const j=await r.json();
+    $('histList').innerHTML = `<div class="card"><h2>Сеансы (${j.count})</h2>`+
+      (j.sessions||[]).map(s=>`<div class="neighbor" style="cursor:pointer" onclick="openSession('${s.id}')">
+        <div class="meta">${LEVEL_ICON[s.risk_level]||''} ${esc(s.risk_level)} (${s.risk_score??'—'}) · ${esc(s.modality)} · ${esc(s.fraud_type||'—')} · ${esc((s.created_at||'').slice(0,19).replace('T',' '))}</div>
+        ${esc(s.text_preview||'')}</div>`).join('') + (j.count?'':'<span class="muted">пусто — прогони что-нибудь во вкладках анализа</span>') + '</div>';
+  }catch(e){ $('histErr').textContent='Ошибка: '+e.message+' (Postgres поднят? ENABLE_DB=true?)'; }
+  busy(btn,st,false);
+}
+
+async function openSession(id){
+  try{
+    const s=await (await fetch(api()+'/sessions/'+id)).json();
+    const rv=(s.reviews||[]).map(r=>`<div class="chip">✓ ${esc(r.reviewer||'—')}: <b>${esc(r.decision)}</b> → ${esc(r.final_label||'')}/${esc(r.final_fraud_type||'')} ${esc(r.notes||'')}</div>`).join('');
+    $('histDetail').innerHTML = `<div class="card">
+      <h2>Сеанс ${LEVEL_ICON[s.risk_level]||''} ${esc(s.risk_level)} (${s.risk_score??'—'})</h2>
+      <div class="chips"><span class="chip"><b>тип:</b> ${esc(s.modality)}</span><span class="chip"><b>fraud_type:</b> ${esc(s.fraud_type||'—')}</span><span class="chip"><b>язык:</b> ${esc(s.language||'—')}</span><span class="chip"><b>latency:</b> ${s.latency_ms??'—'} ms</span></div>
+      ${s.input_url?`<div class="muted mono small">${esc(s.input_url)}</div>`:''}
+      <div class="sub">Текст</div><div class="ev">${esc(s.text_preview||'')}</div>
+      <div class="sub">Сигналы</div><div class="chips">${(s.risk_signals||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'<span class="muted">—</span>'}</div>
+      <div class="sub">Ревью аналитика</div>${rv||'<span class="muted">пока нет</span>'}
+      <div class="sub">Добавить вердикт</div>
+      <div class="row">
+        <input class="text" id="rvReviewer" placeholder="аналитик" style="max-width:140px">
+        <select class="text" id="rvDecision" style="width:auto"><option value="confirm">confirm</option><option value="override">override</option></select>
+        <input class="text" id="rvLabel" placeholder="final_label (scam/legit/...)" style="max-width:200px">
+        <input class="text" id="rvFraud" placeholder="final_fraud_type" style="max-width:200px">
+      </div>
+      <div class="row"><input class="text" id="rvNotes" placeholder="заметки"><button onclick="submitReview('${id}')">Сохранить вердикт</button><span class="muted" id="rvStatus"></span></div>
+    </div>`;
+    $('histDetail').scrollIntoView({behavior:'smooth'});
+  }catch(e){ $('histErr').textContent='Ошибка: '+e.message; }
+}
+
+async function submitReview(id){
+  const st=$('rvStatus'); st.textContent='…';
+  try{
+    const body={reviewer:$('rvReviewer').value||null, decision:$('rvDecision').value,
+      final_label:$('rvLabel').value||null, final_fraud_type:$('rvFraud').value||null, notes:$('rvNotes').value||null};
+    const r=await fetch(api()+'/sessions/'+id+'/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+await r.text());
+    st.textContent='✓ сохранено'; openSession(id); loadHistory();
+  }catch(e){ st.textContent='ошибка: '+e.message; }
+}
+
+checkHealth();
+</script>
+</body>
+</html>

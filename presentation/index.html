@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FakeFace FinGuard — архитектура системы</title>
+<style>
+  :root{
+    --bg:#0b0f17; --bg2:#111726; --panel:#161e30; --line:#243047;
+    --txt:#e6ecf5; --muted:#8da2c0; --accent:#4da3ff; --accent2:#7c5cff;
+    --green:#35d07f; --yellow:#f5c451; --orange:#ff9f43; --red:#ff5d6c;
+    --mono:"SFMono-Regular", Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);overflow:hidden}
+
+  /* progress + topbar */
+  #progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;z-index:50;transition:width .3s ease}
+  #topbar{position:fixed;top:0;right:0;left:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;z-index:40;font-size:13px;color:var(--muted)}
+  #topbar .brand{font-weight:700;color:var(--txt);letter-spacing:.5px}
+  #topbar .brand span{color:var(--accent)}
+  #topbar .section{font-family:var(--mono)}
+
+  /* slides */
+  .deck{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:64px 56px 56px}
+  .slide{position:absolute;width:min(1180px,94vw);max-height:88vh;overflow:auto;opacity:0;transform:translateY(18px) scale(.99);pointer-events:none;transition:opacity .4s ease,transform .4s ease}
+  .slide.active{opacity:1;transform:none;pointer-events:auto}
+  .slide::-webkit-scrollbar{width:8px}
+  .slide::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+
+  .kicker{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:54px;line-height:1.05;letter-spacing:-1px;margin-bottom:18px}
+  h1 .sub{display:block;font-size:22px;color:var(--muted);font-weight:500;margin-top:14px;letter-spacing:0}
+  h2{font-size:34px;margin-bottom:22px;letter-spacing:-.5px}
+  h2 .num{font-family:var(--mono);color:var(--accent);font-size:20px;margin-right:12px}
+  h3{font-size:18px;margin-bottom:10px;color:var(--txt)}
+  p{color:var(--muted);font-size:17px;line-height:1.6;margin-bottom:14px}
+  .lead{font-size:20px;color:var(--txt)}
+  ul{list-style:none;margin:8px 0}
+  li{color:var(--muted);font-size:16px;line-height:1.7;padding-left:22px;position:relative}
+  li::before{content:"▸";position:absolute;left:0;color:var(--accent)}
+  li b,p b{color:var(--txt)}
+  code{font-family:var(--mono);background:var(--bg2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.86em;color:#bcd0ee}
+  .muted{color:var(--muted)}
+
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+  .card h3{display:flex;align-items:center;gap:9px}
+  .card .ico{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;background:var(--bg2);border:1px solid var(--line)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);background:var(--bg2);color:var(--muted);margin:3px 4px 3px 0}
+  .tag.b{color:var(--accent);border-color:#2a4a6e}
+  pre{background:#0a0e16;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:13.5px;line-height:1.55;color:#cdd9ee}
+  pre .c{color:#5f7a9e}
+  .kw{color:#7c9cff}.str{color:#8fd6a0}.fn{color:#f5c451}.cm{color:#5b6b86;font-style:italic}.op{color:#ff9f43}
+
+  /* flow diagram */
+  .flow{display:flex;flex-direction:column;gap:8px;align-items:center;font-family:var(--mono);font-size:14px}
+  .flow .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 18px;min-width:280px;text-align:center}
+  .flow .node.hl{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;color:var(--txt)}
+  .flow .arr{color:var(--accent);font-size:16px}
+  .flow .row{display:flex;gap:14px}
+
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--accent);font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  td{color:var(--muted)}td b{color:var(--txt)}
+  td.mono,th.mono{font-family:var(--mono);font-size:13px}
+
+  .pill{display:inline-block;padding:2px 10px;border-radius:20px;font-family:var(--mono);font-size:12px;font-weight:700}
+  .pill.low{background:rgba(53,208,127,.15);color:var(--green)}
+  .pill.med{background:rgba(245,196,81,.15);color:var(--yellow)}
+  .pill.high{background:rgba(255,159,67,.15);color:var(--orange)}
+  .pill.crit{background:rgba(255,93,108,.15);color:var(--red)}
+
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .layer{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+  .layer .lbl{font-family:var(--mono);font-size:12px;color:var(--accent);width:120px;flex:none}
+  .layer .desc{color:var(--muted);font-size:15px}
+
+  .hint{position:fixed;bottom:14px;left:0;right:0;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono);z-index:40}
+  #counter{position:fixed;bottom:14px;right:22px;font-family:var(--mono);font-size:12px;color:var(--muted);z-index:40}
+  .navzone{position:fixed;top:46px;bottom:0;width:18%;z-index:30;cursor:pointer}
+  #prevZone{left:0}#nextZone{right:0}
+  .center{text-align:center}
+  .badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .small{font-size:13px}
+  .accent{color:var(--accent)}
+  .footnote{font-size:12.5px;color:var(--muted);font-family:var(--mono);margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="topbar">
+  <div class="brand">FakeFace<span>FinGuard</span> + Shadow Graph</div>
+  <div class="section" id="sectionLabel"></div>
+</div>
+
+<div class="navzone" id="prevZone" title="назад"></div>
+<div class="navzone" id="nextZone" title="вперёд"></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1. TITLE -->
+  <section class="slide" data-section="Обзор">
+    <div class="center">
+      <div class="kicker">Мультимодальная антифрод-аналитика · KZ</div>
+      <h1>FakeFace FinGuard
+        <span class="sub">Выявление риск-сигналов в видео, постах и звонках:<br>казино-реклама, пирамиды, фишинг, fake eGov/КНБ-звонки, deepfake</span>
+      </h1>
+      <div class="badge-row center" style="justify-content:center">
+        <span class="tag b">uv</span><span class="tag b">FastAPI</span>
+        <span class="tag b">vLLM</span><span class="tag b">Qdrant</span>
+        <span class="tag b">Neo4j</span><span class="tag b">Whisper</span>
+        <span class="tag b">PaddleOCR</span><span class="tag b">Docker Compose</span>
+      </div>
+      <p style="margin-top:26px;max-width:760px;margin-left:auto;margin-right:auto" class="small">
+        Система не выносит юридическое обвинение. Она автоматически выявляет
+        риск-сигналы, объясняет причины и передаёт материал на ручную проверку аналитика.
+      </p>
+    </div>
+  </section>
+
+  <!-- 2. CONCEPT -->
+  <section class="slide" data-section="Обзор">
+    <div class="kicker">Концепт</div>
+    <h2>Две подсистемы, одна цепочка доказательств</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3><span class="ico">🛡️</span> FakeFace FinGuard</h3>
+        <p>Мультимодальный анализатор: видео / аудио / текст / ссылки → ASR, OCR,
+        извлечение сущностей, классификация сценария, детерминированный риск-скоринг.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">🕸️</span> Shadow Graph</h3>
+        <p>Граф цифровых следов:
+        <code>блогер → видео → сайт → промокод → Telegram → кошелёк</code>.
+        Находит повторяемость сущностей между источниками.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <h3>Главная ценность</h3>
+      <p style="margin-bottom:0">Не просто «AI сказал scam», а <b>объяснимая цепочка</b>:
+      видео → сайт → промокод → Telegram → повторяемость → высокий риск.</p>
+    </div>
+  </section>
+
+  <!-- 3. PIPELINE -->
+  <section class="slide" data-section="Обзор">
+    <div class="kicker">Сквозной пайплайн · ТЗ §2</div>
+    <h2>Как материал проходит через систему</h2>
+    <div class="flow">
+      <div class="node">Загрузка: видео / аудио / пост / ссылка</div>
+      <div class="arr">↓</div>
+      <div class="node hl">Media Agent — видео→кадры+аудио, ASR, OCR</div>
+      <div class="arr">↓</div>
+      <div class="node hl">Entity Extraction — URL, домены, Telegram, телефоны, промокоды, суммы, кошельки</div>
+      <div class="arr">↓</div>
+      <div class="node hl">Scenario Detection — illegal_gambling_promo, fake_egov_call, investment_scam …</div>
+      <div class="arr">↓</div>
+      <div class="row">
+        <div class="node">Similarity · Qdrant</div>
+        <div class="node">Shadow Graph · Neo4j</div>
+      </div>
+      <div class="arr">↓</div>
+      <div class="node hl">Risk Engine — risk_score + risk_level</div>
+      <div class="arr">↓</div>
+      <div class="node">Analyst Report — evidence · entities · signals · recommendation</div>
+    </div>
+  </section>
+
+  <!-- 4. ARCHITECTURE / STACK -->
+  <section class="slide" data-section="Архитектура">
+    <div class="kicker">Целевая схема развёртывания</div>
+    <h2>Сервисы и слои</h2>
+    <div class="stack">
+      <div class="layer"><span class="lbl">Клиент</span><span class="desc">Streamlit / curl / фронт → HTTP</span></div>
+      <div class="layer" style="border-color:var(--accent)">
+        <span class="lbl" style="color:var(--txt)">FastAPI · api</span>
+        <span class="desc">Оркестратор: Media · Entity · Scenario · Similarity · Graph · Risk Engine</span>
+      </div>
+      <div class="layer"><span class="lbl">vLLM</span><span class="desc">LLM-сервис, OpenAI-совместимый API (классификация сценария, добор сущностей, объяснения)</span></div>
+      <div class="layer"><span class="lbl">Qdrant</span><span class="desc">Векторный поиск похожих известных scam-кейсов (multilingual-e5)</span></div>
+      <div class="layer"><span class="lbl">Neo4j</span><span class="desc">Shadow Graph — узлы, связи, повторяемость сущностей</span></div>
+    </div>
+    <div class="footnote">Каждый внешний слой за фичефлагом:
+      <code>ENABLE_LLM</code> · <code>ENABLE_SIMILARITY</code> · <code>ENABLE_GRAPH</code>.
+      Минимальный срез (regex + сигналы + risk_engine) работает без GPU и внешних сервисов.</div>
+  </section>
+
+  <!-- 5. REPO STRUCTURE -->
+  <section class="slide" data-section="Архитектура">
+    <div class="kicker">Структура репозитория</div>
+    <h2>Где что лежит</h2>
+    <div class="grid g2">
+      <pre><span class="cm"># backend — FastAPI</span>
+backend/app/
+├── main.py        <span class="cm"># lifespan + DI</span>
+├── config.py      <span class="cm"># pydantic-settings (env)</span>
+├── api/           <span class="cm"># роутеры /analyze /graph …</span>
+├── services/      <span class="cm"># агенты = сервисы</span>
+├── clients/       <span class="cm"># vLLM · Qdrant · Neo4j</span>
+└── schemas/       <span class="cm"># единый JSONL-формат §5</span></pre>
+      <pre><span class="cm"># src — код студентов</span>
+src/
+├── parsers/       <span class="cm"># youtube tg ready kz</span>
+├── media/         <span class="cm"># asr_whisper · ocr_paddle</span>
+├── extraction/    <span class="cm"># regex · signal_extractor</span>
+├── risk/          <span class="cm"># risk_engine.py</span>
+├── graph/         <span class="cm"># cypher · build_graph</span>
+└── app/           <span class="cm"># streamlit_app.py</span>
+
+infra/docker-compose.yml · data/ · docs/ · tests/</pre>
+    </div>
+  </section>
+
+  <!-- 6. MEDIA SERVICE -->
+  <section class="slide" data-section="Media Service">
+    <div class="kicker"><span class="num">01</span>Media Service · Студент 4</div>
+    <h2><span class="num">§</span>Видео/аудио → текст</h2>
+    <div class="grid g2">
+      <div>
+        <ul>
+          <li><b>ffmpeg</b> извлекает аудио (16 кГц моно) и кадры (1 кадр / 2 сек)</li>
+          <li><b>faster-whisper</b> (small, int8) — ASR аудио → transcript</li>
+          <li><b>PaddleOCR</b> — текст с кадров (домены, промокоды, QR-подписи)</li>
+          <li>Тяжёлые синхронные операции → <code>asyncio.to_thread</code></li>
+          <li>Для звонков — версия ASR с таймкодами для детекции этапов</li>
+        </ul>
+        <div class="footnote">План «Риски»: если медленно — заранее посчитанные транскрипты;
+          OCR прогнать офлайн и отдавать из кэша.</div>
+      </div>
+      <pre><span class="kw">async def</span> <span class="fn">process_video</span>(path):
+  wav    = extract_audio(path)   <span class="cm"># ffmpeg</span>
+  frames = extract_frames(path)  <span class="cm"># ffmpeg fps=0.5</span>
+  transcript = whisper(wav)
+  ocr_text   = paddle(frames)
+  <span class="kw">return</span> MediaResult(transcript, ocr_text)
+
+<span class="cm"># combined_text = transcript + ocr_text</span></pre>
+    </div>
+  </section>
+
+  <!-- 7. ENTITY EXTRACTION -->
+  <section class="slide" data-section="Entity Extraction">
+    <div class="kicker"><span class="num">02</span>Entity Extraction · Студент 7</div>
+    <h2><span class="num">§10</span>Сущности: regex + LLM</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Проход 1 — regex (детерминированный)</h3>
+        <div class="badge-row">
+          <span class="tag">URL / домены</span><span class="tag">@telegram</span>
+          <span class="tag">телефон KZ</span><span class="tag">промокод</span>
+          <span class="tag">суммы ₸/USDT</span><span class="tag">BTC / ETH wallet</span>
+        </div>
+        <p class="small" style="margin-top:14px">Телефоны и карты — только <b>маска</b>
+        (<code>4400****1234</code>) или <b>sha256-хэш</b>. Правило безопасности ТЗ §0.</p>
+        <h3 style="margin-top:16px">Проход 2 — LLM (добор)</h3>
+        <p class="small">Названия проектов/платформ, организации (eGov, КНБ, Нацбанк),
+        pressure-фразы — то, что regex не ловит.</p>
+      </div>
+      <pre>RE_TELEGRAM = <span class="str">r"@[A-Za-z0-9_]{5,32}"</span>
+RE_URL      = <span class="str">r"https?://[^\s]+|www\.[^\s]+"</span>
+RE_PHONE_KZ = <span class="str">r"(\+7|8)\s?\(?7\d{2}\)?…"</span>
+RE_PROMO    = <span class="str">r"(промокод|promo|код)\s*[:\-]?\s*([A-Z0-9]{4,20})"</span>
+RE_BTC      = <span class="str">r"\b(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b"</span>
+RE_ETH      = <span class="str">r"0x[a-fA-F0-9]{40}"</span>
+
+<span class="fn">mask_phone</span>(p)  <span class="op">→</span> <span class="str">"77*******67"</span>
+<span class="fn">hash_value</span>(p) <span class="op">→</span> sha256</pre>
+    </div>
+  </section>
+
+  <!-- 8. SCENARIO DETECTION -->
+  <section class="slide" data-section="Scenario Detection">
+    <div class="kicker"><span class="num">03</span>Scenario Detection · vLLM</div>
+    <h2><span class="num">§7</span>Классификация типа мошенничества</h2>
+    <div class="grid g2">
+      <div>
+        <p>LLM получает <code>combined_text</code> и возвращает <b>строго JSON</b>:
+        тип, уверенность, дополнительные сигналы и evidence-фразы.</p>
+        <pre><span class="cm">// ответ модели</span>
+{
+  <span class="str">"fraud_type"</span>: <span class="str">"fake_egov_delivery_call"</span>,
+  <span class="str">"confidence"</span>: <span class="op">0.93</span>,
+  <span class="str">"risk_signals"</span>: [<span class="str">"sms_code_request"</span>, …],
+  <span class="str">"evidence_spans"</span>: [<span class="str">"назовите код из SMS"</span>]
+}</pre>
+        <div class="footnote">Правило надёжности: <b>LLM не ставит risk_score</b> —
+        только сигналы и категорию. Скоринг детерминированный.</div>
+      </div>
+      <div>
+        <h3>fraud_type — словарь</h3>
+        <div class="badge-row">
+          <span class="tag">illegal_gambling_promo</span>
+          <span class="tag">fake_egov_delivery_call</span>
+          <span class="tag">fake_bank_call</span>
+          <span class="tag">fake_government_call</span>
+          <span class="tag">investment_scam</span>
+          <span class="tag">crypto_scam</span>
+          <span class="tag">phishing</span>
+          <span class="tag">money_mule_or_drop</span>
+          <span class="tag">fake_seller</span>
+          <span class="tag">fake_credit</span>
+          <span class="tag">deepfake_financial_promo</span>
+          <span class="tag">legit_finance</span>
+          <span class="tag">anti_fraud_education</span>
+          <span class="tag">ordinary_spam</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. SIGNALS / CALL STAGES -->
+  <section class="slide" data-section="Scenario Detection">
+    <div class="kicker"><span class="num">03b</span>Сигналы и этапы звонка</div>
+    <h2>Baseline по ключевым словам (без LLM)</h2>
+    <div class="grid g2">
+      <div>
+        <h3>signal_extractor — правила ru/kz/en</h3>
+        <p class="small">~45 сигналов ловятся детерминированно, поэтому пайплайн работает
+        даже при выключенном LLM. LLM лишь уточняет поверх.</p>
+        <div class="badge-row">
+          <span class="tag">guaranteed_income</span><span class="tag">safe_account</span>
+          <span class="tag">sms_code_request</span><span class="tag">referral_scheme</span>
+          <span class="tag">phishing_url</span><span class="tag">do_not_tell_anyone</span>
+          <span class="tag">remote_access_request</span><span class="tag">promo_code_found</span>
+        </div>
+      </div>
+      <div>
+        <h3>Детекция этапов звонка · ТЗ §2.2</h3>
+        <div class="flow" style="align-items:flex-start;font-size:13px">
+          <div class="node">1 · доставка/eGov</div>
+          <div class="arr">↓</div>
+          <div class="node">2 · SMS-код</div>
+          <div class="arr">↓</div>
+          <div class="node">3 · КНБ/полиция/Нацбанк</div>
+          <div class="arr">↓</div>
+          <div class="node">4 · кредит/угроза</div>
+          <div class="arr">↓</div>
+          <div class="node hl">5 · безопасный счёт / перевод</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. RISK ENGINE -->
+  <section class="slide" data-section="Risk Engine">
+    <div class="kicker"><span class="num">04</span>Risk Engine · Студент 7</div>
+    <h2><span class="num">§11</span>Детерминированный скоринг</h2>
+    <div class="grid g2">
+      <div>
+        <pre><span class="kw">def</span> <span class="fn">score_signals</span>(signals):
+  uniq = dedup(signals)
+  <span class="kw">return</span> min(<span class="op">100</span>, sum(WEIGHTS[s] <span class="kw">for</span> s <span class="kw">in</span> uniq))</pre>
+        <table style="margin-top:6px">
+          <tr><th>Сигнал</th><th class="mono">Балл</th></tr>
+          <tr><td class="mono">sms_code_request</td><td class="mono">+45</td></tr>
+          <tr><td class="mono">safe_account</td><td class="mono">+45</td></tr>
+          <tr><td class="mono">remote_access_request</td><td class="mono">+45</td></tr>
+          <tr><td class="mono">phishing_url</td><td class="mono">+40</td></tr>
+          <tr><td class="mono">fake_government_employee</td><td class="mono">+30</td></tr>
+          <tr><td class="mono">casino_domain_found · graph_entity_reuse</td><td class="mono">+25</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Пороги → risk_level</h3>
+        <table>
+          <tr><th>Диапазон</th><th>Уровень</th></tr>
+          <tr><td class="mono">0–24</td><td><span class="pill low">low</span></td></tr>
+          <tr><td class="mono">25–49</td><td><span class="pill med">medium</span></td></tr>
+          <tr><td class="mono">50–79</td><td><span class="pill high">high</span></td></tr>
+          <tr><td class="mono">80–100</td><td><span class="pill crit">critical</span></td></tr>
+        </table>
+        <div class="footnote">Сигналы собираются из всех слоёв: text (regex/LLM) +
+        media-аномалии + Qdrant similarity + graph reuse. Сумма обрезается до 100.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11. SIMILARITY / QDRANT -->
+  <section class="slide" data-section="Similarity · Qdrant">
+    <div class="kicker"><span class="num">05</span>Similarity Service</div>
+    <h2>Поиск похожих известных scam-кейсов</h2>
+    <div class="grid g2">
+      <div>
+        <ul>
+          <li>Эмбеддинги <b>multilingual-e5-base</b> (ru/kz/en), размер 768</li>
+          <li>Коллекция <code>scam_cases</code>, метрика cosine</li>
+          <li>Payload = весь объект единого формата (label, fraud_type, entities)</li>
+          <li>В пайплайне: top-5 соседей</li>
+          <li>≥3 соседа с <code>label=scam</code> и score &gt; 0.8 →
+            сигнал <code>similar_to_known_scam</code> (+20)</li>
+        </ul>
+        <div class="footnote">Скрипт <code>src/index_dataset.py</code> переиндексирует
+        датасет каждый раз, когда студенты доливают разметку.</div>
+      </div>
+      <pre><span class="cm"># это и сигнал, и evidence для отчёта</span>
+hits = qdrant.search(<span class="str">"scam_cases"</span>,
+        vector=embed(text), limit=<span class="op">5</span>)
+
+scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
+  <span class="kw">if</span> h.score &gt; <span class="op">0.8</span>
+  <span class="kw">and</span> h.payload[<span class="str">"label"</span>] == <span class="str">"scam"</span>]
+
+<span class="kw">if</span> len(scam_near) &gt;= <span class="op">3</span>:
+  signals.append(<span class="str">"similar_to_known_scam"</span>)</pre>
+    </div>
+  </section>
+
+  <!-- 12. SHADOW GRAPH -->
+  <section class="slide" data-section="Shadow Graph · Neo4j">
+    <div class="kicker"><span class="num">06</span>Shadow Graph · Студент 8</div>
+    <h2><span class="num">§12</span>Граф цифровых следов</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Узлы и связи</h3>
+        <pre><span class="op">(:Blogger)</span>-[:PUBLISHED]-><span class="op">(:Video)</span>
+<span class="op">(:Video)</span>-[:MENTIONS]-><span class="op">(:Domain)</span>
+<span class="op">(:Video)</span>-[:MENTIONS]-><span class="op">(:Telegram)</span>
+<span class="op">(:Video)</span>-[:HAS_PROMO]-><span class="op">(:PromoCode)</span>
+<span class="op">(:Call)</span>-[:CLAIMS_AUTHORITY]-><span class="op">(:Org)</span></pre>
+        <p class="small">Телефоны/карты в граф попадают <b>только хэшем/маской</b> (ТЗ §0).</p>
+      </div>
+      <div>
+        <h3>Главная фича демо — повторяемость</h3>
+        <pre><span class="kw">MATCH</span> (d:Domain)&lt;-[:MENTIONS]-(v:Video)
+<span class="kw">WITH</span> d, count(v) <span class="kw">AS</span> uses
+<span class="kw">WHERE</span> uses &gt; <span class="op">1</span>
+<span class="kw">RETURN</span> d.name, uses <span class="kw">ORDER BY</span> uses <span class="kw">DESC</span></pre>
+        <p class="small">Сущность в ≥2 источниках → сигнал
+        <code>graph_entity_reuse</code> (+25). Эндпоинт
+        <code>GET /graph/entity/{value}</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13. API -->
+  <section class="slide" data-section="API">
+    <div class="kicker">FastAPI · эндпоинты</div>
+    <h2>Внешний контракт</h2>
+    <table>
+      <tr><th>Метод</th><th>Путь</th><th>Назначение</th></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/text</td><td>пост/ссылка → entity → scenario → пайплайн (синхронно)</td></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/audio</td><td>звонок → Whisper → этапы → пайплайн</td></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/video</td><td>ffmpeg → ASR + OCR → пайплайн</td></tr>
+      <tr><td class="mono">GET</td><td class="mono">/graph/entity/{value}</td><td>повторяемость сущности из Neo4j</td></tr>
+      <tr><td class="mono">GET</td><td class="mono">/search/similar</td><td>похожие кейсы из Qdrant</td></tr>
+      <tr><td class="mono">GET</td><td class="mono">/health</td><td>пинг vLLM / Qdrant / Neo4j</td></tr>
+    </table>
+    <div class="footnote">DI через <code>lifespan</code> + <code>Depends</code>: клиенты в
+      <code>app.state</code>. Медиа-эндпоинты тяжёлые → при нагрузке выносятся в фоновую задачу с job-таблицей.</div>
+  </section>
+
+  <!-- 14. DATA FORMAT -->
+  <section class="slide" data-section="Данные">
+    <div class="kicker"><span class="num">§5</span>Единый формат датасета</div>
+    <h2>Одна строка <code>ai_media_watch_dataset.jsonl</code></h2>
+    <div class="grid g2">
+      <pre>{
+  <span class="str">"id"</span>: <span class="str">"case_0001"</span>,
+  <span class="str">"modality"</span>: <span class="str">"video|audio|text|url"</span>,
+  <span class="str">"case_type"</span>: <span class="str">"illegal_gambling_promo"</span>,
+  <span class="str">"language"</span>: <span class="str">"ru"</span>,
+  <span class="str">"combined_text"</span>: <span class="str">"…PROMO777 casino-x.com"</span>,
+  <span class="str">"entities"</span>: { urls, domains, telegram,
+     phones, promo_codes, crypto_wallets, … },
+  <span class="str">"media_anomalies"</span>: { possible_deepfake, … },</pre>
+      <pre>  <span class="str">"risk_signals"</span>: [<span class="str">"promo_code_found"</span>, …],
+  <span class="str">"evidence_spans"</span>: [<span class="str">"введи промокод"</span>],
+  <span class="str">"label"</span>: <span class="str">"scam"</span>,
+  <span class="str">"fraud_type"</span>: <span class="str">"illegal_gambling_promo"</span>,
+  <span class="str">"risk_level"</span>: <span class="str">"high"</span>,
+  <span class="str">"risk_score"</span>: <span class="op">82</span>,
+  <span class="str">"annotator"</span>: <span class="str">"student_01"</span>,
+  <span class="str">"review_status"</span>: <span class="str">"approved"</span>
+}</pre>
+    </div>
+    <div class="footnote">Контролируемые словари — <code>backend/app/schemas/enums.py</code>:
+      label · fraud_type · risk_level · 45+ risk_signals. Валидируются Pydantic-моделью.</div>
+  </section>
+
+  <!-- 15. TAXONOMY -->
+  <section class="slide" data-section="Данные">
+    <div class="kicker">Разметка · ТЗ §6 / §8</div>
+    <h2>labels и risk_level</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>label</h3>
+        <table>
+          <tr><td><span class="pill low">legit</span></td><td>норма / офиц. предупреждение / обучение</td></tr>
+          <tr><td><span class="pill med">spam</span></td><td>массовая реклама без явного обмана</td></tr>
+          <tr><td><span class="pill crit">scam</span></td><td>обман, давление, фишинг, пирамида, fake authority</td></tr>
+          <tr><td><span class="pill high">unclear</span></td><td>мало данных, нужна ручная проверка</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>risk_level</h3>
+        <table>
+          <tr><td><span class="pill low">low</span></td><td>1 слабый сигнал, нет денег/ссылки</td></tr>
+          <tr><td><span class="pill med">medium</span></td><td>2–3 сигнала, есть контакт/ссылка</td></tr>
+          <tr><td><span class="pill high">high</span></td><td>деньги + давление + контакт</td></tr>
+          <tr><td><span class="pill crit">critical</span></td><td>SMS-код, ЭЦП, удалёнка, «безопасный счёт», deepfake+призыв</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16. SECURITY -->
+  <section class="slide" data-section="Безопасность">
+    <div class="kicker"><span class="num">§0</span>Правила безопасности данных</div>
+    <h2>Что можно и что нельзя</h2>
+    <div class="grid g2">
+      <div class="card" style="border-color:rgba(255,93,108,.4)">
+        <h3 style="color:var(--red)">✕ Запрещено</h3>
+        <ul>
+          <li>Парсить приватные Telegram-чаты</li>
+          <li>Скачивать/распространять реальные утечки ПДн</li>
+          <li>Хранить реальные карты, ИИН, SMS-коды, CVV, пароли, ЭЦП</li>
+          <li>Реальные записи звонков жертв без согласия</li>
+          <li>Выводы вида «этот человек — преступник»</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(53,208,127,.4)">
+        <h3 style="color:var(--green)">✓ Разрешено</h3>
+        <ul>
+          <li>Открытые официальные предупреждения</li>
+          <li>Готовые публичные датасеты</li>
+          <li>Синтетические учебные звонки и посты</li>
+          <li>Только маскированные/хэшированные реквизиты</li>
+          <li>Выводы только как risk scoring <code>low→critical</code></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17. TEAM -->
+  <section class="slide" data-section="Команда">
+    <div class="kicker">Распределение · ТЗ §13</div>
+    <h2>8 зон ответственности</h2>
+    <table>
+      <tr><th>#</th><th>Зона</th><th>Итоговые файлы</th></tr>
+      <tr><td class="mono">1</td><td><b>YouTube</b> — metadata по gambling/invest/crypto</td><td class="mono small">youtube_candidates_clean.jsonl</td></tr>
+      <tr><td class="mono">2</td><td><b>Telegram</b> — export / готовый датасет</td><td class="mono small">telegram_messages.jsonl</td></tr>
+      <tr><td class="mono">3</td><td><b>Ready datasets</b> — ScamSpot, phishing, crypto</td><td class="mono small">ready_dataset_examples.jsonl</td></tr>
+      <tr><td class="mono">4</td><td><b>ASR/OCR</b> — Whisper, PaddleOCR</td><td class="mono small">audio_transcripts · video_ocr</td></tr>
+      <tr><td class="mono">5</td><td><b>KZ calls</b> — синтетика eGov/КНБ/банк</td><td class="mono small">kz_call_transcripts.jsonl</td></tr>
+      <tr><td class="mono">6</td><td><b>FakeFace</b> — deepfake/voice anomaly</td><td class="mono small">deepfake_examples.jsonl</td></tr>
+      <tr><td class="mono">7</td><td><b>Entity + Risk</b> — regex, scoring</td><td class="mono small">entities_extracted · risk_engine.py</td></tr>
+      <tr><td class="mono">8</td><td><b>Shadow Graph + UI</b> — Neo4j, Streamlit</td><td class="mono small">entities_nodes/edges.csv · streamlit_app.py</td></tr>
+    </table>
+  </section>
+
+  <!-- 18. DEMO SCENARIOS -->
+  <section class="slide" data-section="Демо">
+    <div class="kicker">Сценарии защиты · ТЗ §18</div>
+    <h2>Три демо</h2>
+    <div class="grid g3">
+      <div class="card">
+        <h3>① Казино-блогер</h3>
+        <p class="small">видео → Whisper + OCR → domain, promo, Telegram →
+        Risk <span class="pill high">high</span> → граф blogger→domain→promo</p>
+      </div>
+      <div class="card">
+        <h3>② Звонок eGov→КНБ</h3>
+        <p class="small">аудио → transcript → этапы: доставка→SMS→КНБ→кредит→безопасный счёт →
+        Risk <span class="pill crit">critical</span></p>
+      </div>
+      <div class="card">
+        <h3>③ Deepfake promo</h3>
+        <p class="small">видео → FakeFace possible_deepfake + финансовый призыв + сайт/Telegram →
+        Risk <span class="pill high">high/crit</span></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <h3>Минимальный объём для хакатона</h3>
+      <p style="margin-bottom:0" class="small">≈ <b>200 размеченных примеров</b>: казино 20 · звонки 30 ·
+      пирамиды 40 · phishing 30 · crypto 20 · deepfake 20 · legit/education 40.</p>
+    </div>
+  </section>
+
+  <!-- 19. ROADMAP / FALLBACK -->
+  <section class="slide" data-section="План">
+    <div class="kicker">Порядок работ и запасные варианты</div>
+    <h2>Как не сорвать дедлайн</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Зависимости этапов</h3>
+        <pre>Этап 0 (uv)   ─┐
+Этап 1 (compose)─┼─→ Этап 3 (FastAPI)
+Этап 2 (vLLM) ─┘        ├─→ Qdrant ─┐
+                        ├─→ Neo4j  ─┼→ Risk → Демо
+                        └─→ media   ─┘</pre>
+        <p class="small">Минимальный жизнеспособный срез: <b>этапы 0–3 + 6</b>
+        (текст + regex + LLM + скоринг). Qdrant и граф добавляются поверх без переделки API.</p>
+      </div>
+      <div>
+        <h3>Риски → план Б</h3>
+        <table>
+          <tr><th>Риск</th><th>Запасной</th></tr>
+          <tr><td>Нет GPU для vLLM</td><td>модель 1.5B / Ollama</td></tr>
+          <tr><td>Whisper медленный</td><td>small int8 / кэш</td></tr>
+          <tr><td>PaddleOCR тяжело</td><td>OCR офлайн → кэш</td></tr>
+          <tr><td>Не успели Qdrant</td><td>флаг off, скоринг живёт</td></tr>
+          <tr><td>Не успели Neo4j</td><td>граф из CSV в Streamlit</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 20. CLOSING -->
+  <section class="slide" data-section="План">
+    <div class="center">
+      <div class="kicker">Итог</div>
+      <h1 style="font-size:44px">контент → ASR/OCR → сущности →<br>сигналы → Shadow Graph → объяснимый риск</h1>
+      <p class="lead" style="max-width:780px;margin:18px auto 0">
+        FakeFace FinGuard превращает поток видео, постов и звонков в
+        <span class="accent">объяснимую цепочку доказательств</span> и передаёт
+        аналитику не вердикт, а обоснованный риск-сигнал.</p>
+      <div class="badge-row center" style="justify-content:center;margin-top:26px">
+        <span class="tag">200 примеров · MVP</span>
+        <span class="tag">explainable risk report</span>
+        <span class="tag">human-in-the-loop</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div id="counter">01 / 20</div>
+<div class="hint">← → · Space · клик по краям · F — полный экран · O — обзор</div>
+
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('.slide')];
+  const total=slides.length;
+  let i=0;
+  const counter=document.getElementById('counter');
+  const progress=document.getElementById('progress');
+  const sectionLabel=document.getElementById('sectionLabel');
+
+  function pad(n){return String(n+1).padStart(2,'0')}
+  function render(){
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    counter.textContent=pad(i)+' / '+String(total).padStart(2,'0');
+    progress.style.width=((i)/(total-1)*100)+'%';
+    sectionLabel.textContent=slides[i].dataset.section||'';
+    location.hash=i+1;
+    const a=slides[i]; if(a) a.scrollTop=0;
+  }
+  function go(n){i=Math.max(0,Math.min(total-1,n));render()}
+  function next(){go(i+1)} function prev(){go(i-1)}
+
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next()}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev()}
+    else if(e.key==='Home'){go(0)} else if(e.key==='End'){go(total-1)}
+    else if(e.key==='f'||e.key==='F'){toggleFs()}
+    else if(e.key==='o'||e.key==='O'){toggleOverview()}
+    else if(/^[0-9]$/.test(e.key)){const n=parseInt(e.key);if(n>=1)go(n-1)}
+  });
+  document.getElementById('nextZone').addEventListener('click',next);
+  document.getElementById('prevZone').addEventListener('click',prev);
+
+  function toggleFs(){ if(!document.fullscreenElement){document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()} else {document.exitFullscreen&&document.exitFullscreen()} }
+
+  // overview (grid) toggle
+  let overview=false;
+  function toggleOverview(){
+    overview=!overview;
+    const deck=document.getElementById('deck');
+    if(overview){
+      deck.style.cssText='position:absolute;inset:0;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:60px 24px 40px;overflow:auto;align-items:start;justify-items:stretch';
+      slides.forEach((s,k)=>{s.style.cssText='position:relative;opacity:1;transform:scale(1);pointer-events:auto;width:auto;max-height:24vh;overflow:hidden;cursor:pointer;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:9px;background:var(--bg2)';s.onclick=()=>{toggleOverview();go(k)}})
+    } else {
+      deck.style.cssText='';
+      slides.forEach(s=>{s.style.cssText='';s.onclick=null});
+      render();
+    }
+  }
+
+  // touch swipe
+  let tx=0;
+  document.addEventListener('touchstart',e=>tx=e.touches[0].clientX,{passive:true});
+  document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50){dx<0?next():prev()}},{passive:true});
+
+  const fromHash=parseInt((location.hash||'').replace('#',''));
+  if(fromHash>=1&&fromHash<=total)i=fromHash-1;
+  render();
+})();
+</script>
+</body>
+</html>

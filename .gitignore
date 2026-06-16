@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# env / secrets
+.env
+
+# data — сырьё и большие артефакты не коммитим (кроме .gitkeep и примеров)
+data/raw/**
+data/processed/*.jsonl
+data/processed/*.csv
+!data/**/.gitkeep
+
+# media / models
+*.wav
+*.mp4
+*.mkv
+*.webm
+models/
+hf_cache/
+
+# misc
+.DS_Store
