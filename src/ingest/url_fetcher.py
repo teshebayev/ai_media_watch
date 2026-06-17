@@ -208,37 +208,44 @@ def _thumbnail_ocr(thumb_url: str) -> str:
         return ""
 
 
-def _deep_frame_ocr(url: str) -> str:
-    """Скачать видео в низком качестве → кадры ffmpeg → OCR. Тяжело, только по флагу deep.
+def _download_video(url: str) -> str | None:
+    """Скачать видео в низком качестве во временную папку → путь к файлу (или None).
 
-    Guard-ы: лимит размера скачивания (MAX_DEEP_BYTES), таймаут ffmpeg (FFMPEG_TIMEOUT),
-    максимум MAX_DEEP_FRAMES кадров. Проверка длительности — выше, в fetch_video.
+    Папку НЕ удаляем: файл нужен и для OCR кадров, и для deepfake-детектора.
+    Чистит вызывающая сторона (роутер) через cleanup_media_path().
     """
     import glob
     import os
-    import shutil
-    import subprocess
     import tempfile
 
     import yt_dlp
 
-    from src.media.ocr import ocr_frames
-
     tmp = tempfile.mkdtemp(prefix="finguard_v_")
+    out = os.path.join(tmp, "v.%(ext)s")
+    opts = {"quiet": True, "noplaylist": True, "no_warnings": True,
+            "format": "worst[ext=mp4]/worst", "outtmpl": out, "max_filesize": MAX_DEEP_BYTES}
     try:
-        out = os.path.join(tmp, "v.%(ext)s")
-        opts = {"quiet": True, "noplaylist": True, "no_warnings": True,
-                "format": "worst[ext=mp4]/worst", "outtmpl": out,
-                "max_filesize": MAX_DEEP_BYTES}
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
         vids = glob.glob(os.path.join(tmp, "v.*"))
-        if not vids:
-            return ""
-        fdir = os.path.join(tmp, "frames")
-        os.makedirs(fdir, exist_ok=True)
+        return vids[0] if vids else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _extract_frames_ocr(video_path: str) -> str:
+    """ffmpeg кадры (fps=0.5, ≤MAX_DEEP_FRAMES) → OCR. Из уже скачанного файла."""
+    import glob
+    import os
+    import subprocess
+
+    from src.media.ocr import ocr_frames
+
+    fdir = os.path.join(os.path.dirname(video_path), "frames")
+    os.makedirs(fdir, exist_ok=True)
+    try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", vids[0], "-vf", "fps=0.5",
+            ["ffmpeg", "-y", "-i", video_path, "-vf", "fps=0.5",
              os.path.join(fdir, "f_%03d.png")],
             check=True, capture_output=True, timeout=FFMPEG_TIMEOUT,
         )
@@ -246,8 +253,15 @@ def _deep_frame_ocr(url: str) -> str:
         return ocr_frames(frames)
     except Exception:  # noqa: BLE001
         return ""
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cleanup_media_path(media_path: str | None) -> None:
+    """Удалить временную папку скачанного видео (вызывает роутер после анализа)."""
+    if not media_path:
+        return
+    import os
+    import shutil
+    shutil.rmtree(os.path.dirname(media_path), ignore_errors=True)
 
 
 def fetch_video(url: str, deep: bool = False, ocr: bool = True) -> dict:
@@ -269,6 +283,7 @@ def fetch_video(url: str, deep: bool = False, ocr: bool = True) -> dict:
 
     ocr_text = ""
     ocr_note = None
+    media_path = None  # путь к скачанному видео (deep) — для deepfake-детектора; чистит роутер
     if ocr:
         ocr_text = _thumbnail_ocr(_best_thumbnail(info))
     if deep:
@@ -277,11 +292,13 @@ def fetch_video(url: str, deep: bool = False, ocr: bool = True) -> dict:
             ocr_note = (f"видео {int(duration // 60)} мин длиннее лимита "
                         f"{MAX_DEEP_SECONDS // 60} мин — OCR кадров пропущен (только превью)")
         else:
-            frame_text = _deep_frame_ocr(url)
-            if frame_text:
-                ocr_text = (ocr_text + " " + frame_text).strip()
+            media_path = _download_video(url)  # скачиваем 1 раз: и для OCR кадров, и для deepfake
+            if media_path:
+                frame_text = _extract_frames_ocr(media_path)
+                if frame_text:
+                    ocr_text = (ocr_text + " " + frame_text).strip()
             else:
-                ocr_note = "кадры не удалось получить (лимит размера / скачивание / ffmpeg)"
+                ocr_note = "видео не удалось скачать (лимит размера / yt-dlp)"
 
     parts = [title, desc, " ".join(tags), captions, ocr_text]
     combined = " ".join(p for p in parts if p)[:MAX_CHARS]
@@ -294,6 +311,7 @@ def fetch_video(url: str, deep: bool = False, ocr: bool = True) -> dict:
         "transcript": captions or None,
         "ocr_text": ocr_text or None,
         "ocr_note": ocr_note,
+        "media_path": media_path,
         "duration": info.get("duration"),
         "combined_text": combined,
         "url": info.get("webpage_url", url),

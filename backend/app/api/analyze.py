@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from backend.app.api.deps import get_db, get_llm, get_neo4j, get_qdrant
 from backend.app.config import get_settings
 from backend.app.schemas.models import AnalystReport
+from backend.app.services import deepfake as deepfake_svc
 from backend.app.services import ingest as ingest_svc
 from backend.app.services import media as media_svc
 from backend.app.services import pipeline
@@ -84,16 +85,29 @@ async def analyze_url(
     neo4j=Depends(get_neo4j),
     db=Depends(get_db),
 ) -> dict:
-    """Ссылка (YouTube/HTML/Telegram) → извлечение текста → пайплайн."""
+    """Ссылка (YouTube/HTML/Telegram) → извлечение текста → пайплайн.
+
+    deep=True для видео: скачивает копию → OCR кадров + deepfake-детектор (media_anomalies).
+    """
     t0 = time.perf_counter()
     try:
         data = await ingest_svc.ingest_url(req.url, deep=req.deep)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"не удалось извлечь контент: {e}") from e
 
+    # deepfake-детектор на скачанном видео (deep), если детектор включён
+    anomalies = {}
+    media_path = data.get("media_path")
+    try:
+        if media_path:
+            anomalies = await deepfake_svc.analyze_video_file(media_path)
+    finally:
+        ingest_svc.cleanup_media_path(media_path)
+
     record_id = "url_" + hashlib.sha1(data["url"].encode()).hexdigest()[:12]
     report = await pipeline.analyze_text(
         record_id, data["combined_text"], language=data.get("language", "ru"),
+        extra_signals=deepfake_svc.anomalies_to_signals(anomalies),
         llm=llm, qdrant=qdrant, neo4j=neo4j,
     )
     session_id = await _persist(
@@ -115,6 +129,7 @@ async def analyze_url(
             "duration": data.get("duration"),
             "url": data.get("url"),
         },
+        "media_anomalies": anomalies,
         "combined_text_preview": data["combined_text"][:500],
         "report": report.model_dump(),
     }
@@ -160,11 +175,14 @@ async def analyze_video(
     path = await _save_upload(file, os.path.splitext(file.filename or "v.mp4")[1] or ".mp4")
     try:
         media = await media_svc.process_video(path)
+        anomalies = await deepfake_svc.analyze_video_file(path)  # deepfake/voice (внешний детектор)
     finally:
         os.unlink(path)
     record_id = f"video_{os.path.basename(file.filename or 'clip')}"
     report = await pipeline.analyze_text(
-        record_id, media.combined_text, llm=llm, qdrant=qdrant, neo4j=neo4j
+        record_id, media.combined_text,
+        extra_signals=deepfake_svc.anomalies_to_signals(anomalies),
+        llm=llm, qdrant=qdrant, neo4j=neo4j,
     )
     session_id = await _persist(db, report, modality="video", source="upload", input_url=None,
                                 text_preview=media.combined_text, language="ru", t0=t0)
@@ -172,5 +190,6 @@ async def analyze_video(
         "session_id": session_id,
         "transcript": media.transcript,
         "ocr_text": media.ocr_text,
+        "media_anomalies": anomalies,
         "report": report.model_dump(),
     }

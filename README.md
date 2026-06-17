@@ -24,6 +24,7 @@ src/extraction/     regex_extractors, signal_extractor, kaznerd_ner
 src/media/          asr_whisper, ocr (EasyOCR), asr_check, fakeface_*
 src/synthetic/      gen_call_scripts, gen_posts, tts_batch (MMS-TTS)
 src/ingest/         url_fetcher — ссылка → текст (yt-dlp + httpx + OCR превью/кадров)
+external/           fakeface-detector (изолированный venv, deepfake-детектор; gitignored)
 src/graph/ risk/ parsers/   Shadow Graph, risk_engine, парсеры; index_dataset.py, build_dataset.py
 frontend/           index.html (статика) + vendor/vis-network.min.js — фронт с граф-визуализацией
 scripts/            run_demo.sh, itest_services.py, itest_http.py
@@ -112,6 +113,23 @@ DATABASE_URL=postgresql+asyncpg://finguard:finguard_pass@localhost:5433/finguard
 ```
 Новая схема → `alembic revision --autogenerate -m "..."` → `alembic upgrade head`.
 Без БД: `ENABLE_DB=false` (анализ работает, сеансы не пишутся).
+
+## Deepfake-детектор (видео, кейс 9)
+Внешний детектор (репо `fakeface-deepfake-detector`, Студент 6) подключён через **изолированный venv**
+(их `torch 2.6 / transformers 4.49` конфликтуют с нашими `2.12 / 5.12`), вызывается subprocess'ом:
+видео → ViT по лицам (`possible_deepfake`) + Wav2Vec2 по голосу (`synthetic_voice_suspected`) →
+`media_anomalies` → risk-сигналы (`+25/+25/+20`). Работает для `POST /analyze/video` и `/analyze/url` c `deep:true`.
+
+```bash
+# разовая установка изолированного детектора (~2.5 ГБ torch, в свой venv):
+git clone https://github.com/Denryy/fakeface-deepfake-detector external/fakeface-detector
+uv venv external/fakeface-detector/.venv --python 3.13
+uv pip install --python external/fakeface-detector/.venv/bin/python \
+  opencv-python-headless "transformers==4.49.0" "huggingface-hub<1.0" "tokenizers<0.22" \
+  imageio-ffmpeg soundfile "torch==2.6.0" "torchvision==0.21.0"
+# включить: ENABLE_DEEPFAKE=true (по умолчанию off; см. .env.example)
+```
+По умолчанию — 1 ViT + Wav2Vec2 (лёгкий профиль рядом с vLLM); полный ансамбль (NPR/DFDC) — опция.
 
 ## Команды
 `make api` — backend локально · `make api-cpu` — backend без GPU (LLM off) · `make front` — статик-фронт ·

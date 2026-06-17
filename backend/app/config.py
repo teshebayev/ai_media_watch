@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     enable_graph: bool = True
     enable_llm: bool = True
 
+    # Deepfake-детектор (внешний репо в своём venv — изоляция от конфликта зависимостей)
+    enable_deepfake: bool = False
+    deepfake_dir: str = "external/fakeface-detector"
+    deepfake_python: str = "external/fakeface-detector/.venv/bin/python"
+    deepfake_timeout: int = 120
+
     # Данные
     data_dir: str = "/app/data"
     dataset_path: str = "/app/data/processed/ai_media_watch_dataset.jsonl"

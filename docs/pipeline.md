@@ -36,6 +36,7 @@ flowchart TD
         LLM["LLM scenario detection<br/>vLLM · Qwen2.5 → fraud_type"]
         QD[("Qdrant<br/>e5 эмбеддинги · similarity")]
         NEO[("Neo4j<br/>Shadow Graph")]
+        DFK["Deepfake-детектор<br/>внешний venv: ViT лицо + Wav2Vec2 голос<br/>→ media_anomalies"]
     end
 
     %% ---------- Скоринг ----------
@@ -91,6 +92,11 @@ flowchart TD
     CT --> QD
     RE --> NEO
 
+    %% ---- deepfake-детектор (видео-файл, /analyze/video и url deep) ----
+    VID --> DFK
+    SP --> DFK
+    DFK -- "possible_deepfake / synthetic_voice" --> SAGG
+
     %% ---- сигналы → скоринг ----
     SIG --> SAGG
     LLM --> SAGG
@@ -126,7 +132,7 @@ flowchart TD
     classDef llm fill:#241a40,stroke:#7c5cff,color:#e6ecf5;
     classDef pg fill:#13301f,stroke:#35d07f,color:#e6ecf5;
     class SP,QD,NEO,DS store;
-    class LLM,LLME,NER llm;
+    class LLM,LLME,NER,DFK llm;
     class PG,RV,ST pg;
 ```
 
@@ -139,6 +145,7 @@ flowchart TD
 | Извлечение сущностей | `src/extraction/regex_extractors.py`, `kaznerd_ner.py` | regex §10 + KazNERD (kk) + LLM-добор |
 | Сигналы | `src/extraction/signal_extractor.py` | risk_signals + этапы звонка |
 | Scenario / LLM | `backend/app/services/scenario.py` → vLLM | fraud_type §7 |
+| Deepfake-детектор | `backend/app/services/deepfake.py` → `external/fakeface-detector` (свой venv) | `media_anomalies` (ViT лицо + Wav2Vec2 голос) → `possible_deepfake`/`synthetic_voice_suspected` |
 | Similarity | `backend/app/services/similarity.py` → Qdrant | similar_to_known_scam |
 | Shadow Graph | `backend/app/services/graph.py` → Neo4j | graph_entity_reuse, повторяемость |
 | Risk Engine | `src/risk/risk_engine.py` | детерминированный скоринг §11 → Analyst Report |

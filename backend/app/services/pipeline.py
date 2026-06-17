@@ -31,6 +31,7 @@ async def analyze_text(
     combined_text: str,
     *,
     language: str = "ru",
+    extra_signals: list[str] | None = None,
     llm: AsyncOpenAI | None = None,
     qdrant: AsyncQdrantClient | None = None,
     neo4j: AsyncDriver | None = None,
@@ -48,8 +49,10 @@ async def analyze_text(
     if language == "kk":
         entities = await asyncio.to_thread(entity_svc.enrich_with_ner, combined_text, entities)
 
-    # 2. Базовые сигналы из текста + сущностей
+    # 2. Базовые сигналы из текста + сущностей (+ внешние, напр. media-аномалии deepfake)
     signals = extract_signals(combined_text, entities.model_dump())
+    if extra_signals:
+        signals += [x for x in extra_signals if x in RISK_SIGNALS]
     evidence: list[str] = []
     fraud_type: FraudType | None = None
 
