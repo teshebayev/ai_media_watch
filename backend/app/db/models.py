@@ -37,6 +37,7 @@ class AnalysisSession(Base):
     risk_level: Mapped[str | None] = mapped_column(String(16), index=True)
     risk_signals: Mapped[list] = mapped_column(JSONB, default=list)
     entities: Mapped[dict] = mapped_column(JSONB, default=dict)
+    media_anomalies: Mapped[dict] = mapped_column(JSONB, default=dict)
     evidence_spans: Mapped[list] = mapped_column(JSONB, default=list)
     recommendation: Mapped[str | None] = mapped_column(Text)
     llm_used: Mapped[bool] = mapped_column(default=False)

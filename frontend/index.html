@@ -217,6 +217,16 @@
 const $ = id => document.getElementById(id);
 const api = () => $('apiBase').value.replace(/\/$/, '');
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const ANOM_LABEL = {has_face:'есть лицо', possible_deepfake:'возможен deepfake', synthetic_voice_suspected:'синтетический голос', lip_sync_anomaly:'рассинхрон губ'};
+function anomaliesHtml(a){
+  if(!a || !Object.keys(a).length) return '';
+  const chips = Object.entries(a).map(([k,v])=>{
+    const danger = v && k!=='has_face';
+    const c = danger ? 'var(--red)' : (v?'var(--accent)':'var(--muted)');
+    return `<span class="chip" style="border-color:${c};color:${c}">${danger?'⚠ ':''}${esc(ANOM_LABEL[k]||k)}: ${v?'да':'нет'}</span>`;
+  }).join('');
+  return `<div class="sub">Media-аномалии (deepfake-детектор)</div><div class="chips">${chips}</div>`;
+}
 
 // tabs
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
@@ -315,6 +325,7 @@ async function analyzeUrl(){
       ${e.title?`<div class="sub">Заголовок</div><div>${esc(e.title)}</div>`:''}
       ${e.ocr_text?`<div class="sub">OCR с превью/кадров</div><div class="ev">${esc(e.ocr_text)}</div>`:''}
       ${e.ocr_note?`<div class="muted" style="color:var(--yellow);font-size:13px;margin-top:8px">⚠ ${esc(e.ocr_note)}</div>`:''}
+      ${anomaliesHtml(j.media_anomalies)}
       <div class="sub">Извлечённый текст (превью)</div>
       <div class="ev">${esc(j.combined_text_preview||'')}…</div>
       <div class="muted mono" style="font-size:12px;margin-top:8px">${esc(e.url)}</div>
@@ -478,6 +489,7 @@ async function openSession(id){
       <div class="chips"><span class="chip"><b>тип:</b> ${esc(s.modality)}</span><span class="chip"><b>fraud_type:</b> ${esc(s.fraud_type||'—')}</span><span class="chip"><b>язык:</b> ${esc(s.language||'—')}</span><span class="chip"><b>latency:</b> ${s.latency_ms??'—'} ms</span></div>
       ${s.input_url?`<div class="muted mono small">${esc(s.input_url)}</div>`:''}
       <div class="sub">Текст</div><div class="ev">${esc(s.text_preview||'')}</div>
+      ${anomaliesHtml(s.media_anomalies)}
       <div class="sub">Сигналы</div><div class="chips">${(s.risk_signals||[]).map(x=>`<span class="chip">${esc(x)}</span>`).join('')||'<span class="muted">—</span>'}</div>
       <div class="sub">Ревью аналитика</div>${rv||'<span class="muted">пока нет</span>'}
       <div class="sub">Добавить вердикт</div>

@@ -32,7 +32,8 @@ from src.extraction.signal_extractor import detect_call_stages
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 
-async def _persist(db, report, *, modality, source, input_url, text_preview, language, t0):
+async def _persist(db, report, *, modality, source, input_url, text_preview, language, t0,
+                   media_anomalies=None):
     """Best-effort запись сеанса в Postgres (не валит анализ при сбое БД)."""
     try:
         return await sessions_svc.save_session(
@@ -40,6 +41,7 @@ async def _persist(db, report, *, modality, source, input_url, text_preview, lan
             text_preview=text_preview, language=language,
             llm_used=get_settings().enable_llm,
             latency_ms=int((time.perf_counter() - t0) * 1000),
+            media_anomalies=media_anomalies,
         )
     except Exception:  # noqa: BLE001
         return None
@@ -113,7 +115,7 @@ async def analyze_url(
     session_id = await _persist(
         db, report, modality=data.get("modality", "url"), source=data.get("platform"),
         input_url=data.get("url"), text_preview=data["combined_text"][:500],
-        language=data.get("language"), t0=t0)
+        language=data.get("language"), t0=t0, media_anomalies=anomalies)
     return {
         "session_id": session_id,
         "extracted": {
@@ -185,7 +187,8 @@ async def analyze_video(
         llm=llm, qdrant=qdrant, neo4j=neo4j,
     )
     session_id = await _persist(db, report, modality="video", source="upload", input_url=None,
-                                text_preview=media.combined_text, language="ru", t0=t0)
+                                text_preview=media.combined_text, language="ru", t0=t0,
+                                media_anomalies=anomalies)
     return {
         "session_id": session_id,
         "transcript": media.transcript,

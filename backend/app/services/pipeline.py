@@ -21,6 +21,7 @@ from backend.app.schemas.enums import RISK_SIGNALS, FraudType
 from backend.app.schemas.models import AnalystReport
 from backend.app.services import entities as entity_svc
 from backend.app.services import graph as graph_svc
+from backend.app.services import osint as osint_svc
 from backend.app.services import risk as risk_svc
 from backend.app.services import scenario as scenario_svc
 from backend.app.services import similarity as sim_svc
@@ -53,6 +54,12 @@ async def analyze_text(
     signals = extract_signals(combined_text, entities.model_dump())
     if extra_signals:
         signals += [x for x in extra_signals if x in RISK_SIGNALS]
+
+    # 2b. OSINT/репутация доменов (эвристика офлайн + PhishTank по флагу)
+    if s.enable_osint and (entities.domains or entities.urls):
+        osint_sig = await asyncio.to_thread(osint_svc.osint_signals, entities.domains, entities.urls)
+        signals += [x for x in osint_sig if x in RISK_SIGNALS]
+
     evidence: list[str] = []
     fraud_type: FraudType | None = None
 

@@ -37,6 +37,7 @@ flowchart TD
         QD[("Qdrant<br/>e5 эмбеддинги · similarity")]
         NEO[("Neo4j<br/>Shadow Graph")]
         DFK["Deepfake-детектор<br/>внешний venv: ViT лицо + Wav2Vec2 голос<br/>→ media_anomalies"]
+        OSINT["OSINT/репутация<br/>тайпсквоттинг брендов + TLD<br/>(+PhishTank) → phishing_url"]
     end
 
     %% ---------- Скоринг ----------
@@ -55,7 +56,7 @@ flowchart TD
 
     %% ---------- Персистентность (Postgres) ----------
     subgraph PERS["🗄 Postgres — персистентный слой"]
-        PG[("analysis_sessions<br/>журнал: отчёт, сигналы,<br/>сущности, latency")]
+        PG[("analysis_sessions<br/>журнал: отчёт, сигналы, сущности,<br/>media_anomalies, latency")]
         RV[("analyst_reviews<br/>ручная проверка:<br/>confirm / override")]
         ST["/stats<br/>агрегаты: risk_level, fraud_type"]
     end
@@ -97,6 +98,10 @@ flowchart TD
     SP --> DFK
     DFK -- "possible_deepfake / synthetic_voice" --> SAGG
 
+    %% ---- OSINT/репутация (по доменам из сущностей) ----
+    RE --> OSINT
+    OSINT -- "phishing_url / suspicious_domain" --> SAGG
+
     %% ---- сигналы → скоринг ----
     SIG --> SAGG
     LLM --> SAGG
@@ -132,7 +137,7 @@ flowchart TD
     classDef llm fill:#241a40,stroke:#7c5cff,color:#e6ecf5;
     classDef pg fill:#13301f,stroke:#35d07f,color:#e6ecf5;
     class SP,QD,NEO,DS store;
-    class LLM,LLME,NER,DFK llm;
+    class LLM,LLME,NER,DFK,OSINT llm;
     class PG,RV,ST pg;
 ```
 
@@ -146,6 +151,7 @@ flowchart TD
 | Сигналы | `src/extraction/signal_extractor.py` | risk_signals + этапы звонка |
 | Scenario / LLM | `backend/app/services/scenario.py` → vLLM | fraud_type §7 |
 | Deepfake-детектор | `backend/app/services/deepfake.py` → `external/fakeface-detector` (свой venv) | `media_anomalies` (ViT лицо + Wav2Vec2 голос) → `possible_deepfake`/`synthetic_voice_suspected` |
+| OSINT/репутация | `backend/app/services/osint.py` | тайпсквоттинг KZ-брендов + TLD (+PhishTank) → `phishing_url`/`suspicious_domain` |
 | Similarity | `backend/app/services/similarity.py` → Qdrant | similar_to_known_scam |
 | Shadow Graph | `backend/app/services/graph.py` → Neo4j | graph_entity_reuse, повторяемость |
 | Risk Engine | `src/risk/risk_engine.py` | детерминированный скоринг §11 → Analyst Report |

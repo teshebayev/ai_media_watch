@@ -23,6 +23,7 @@ async def save_session(
     language: str | None = None,
     llm_used: bool = False,
     latency_ms: int | None = None,
+    media_anomalies: dict | None = None,
 ) -> str | None:
     """Сохранить сеанс анализа. Best-effort: при выключенной/недоступной БД — None."""
     if db is None:
@@ -39,6 +40,7 @@ async def save_session(
         risk_level=report.risk_level.value if report.risk_level else None,
         risk_signals=[s.signal for s in report.triggered_signals],
         entities=report.entities.model_dump(),
+        media_anomalies=media_anomalies or {},
         evidence_spans=report.evidence_spans,
         recommendation=report.recommendation,
         llm_used=llm_used,
@@ -106,7 +108,8 @@ def _session_full(r: AnalysisSession) -> dict:
     d = _session_brief(r)
     d.update({"source": r.source, "input_url": r.input_url, "language": r.language,
               "text_preview": r.text_preview, "risk_signals": r.risk_signals,
-              "entities": r.entities, "evidence_spans": r.evidence_spans,
+              "entities": r.entities, "media_anomalies": r.media_anomalies,
+              "evidence_spans": r.evidence_spans,
               "recommendation": r.recommendation, "llm_used": r.llm_used,
               "latency_ms": r.latency_ms,
               "reviews": [{"id": str(rv.id), "reviewer": rv.reviewer, "decision": rv.decision,

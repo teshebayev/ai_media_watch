@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     deepfake_python: str = "external/fakeface-detector/.venv/bin/python"
     deepfake_timeout: int = 120
 
+    # OSINT / репутация доменов (эвристика офлайн всегда; PhishTank — по флагу, сеть)
+    enable_osint: bool = True
+    enable_phishtank: bool = False
+    phishtank_api_key: str = ""
+
     # Данные
     data_dir: str = "/app/data"
     dataset_path: str = "/app/data/processed/ai_media_watch_dataset.jsonl"
