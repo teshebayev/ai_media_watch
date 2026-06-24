@@ -52,6 +52,17 @@ print("классов:", df["fraud_type"].nunique(), "| строк:", len(df))
 print(df["fraud_type"].value_counts())
 print("\\nпо языкам:", df["language"].value_counts().to_dict())""")
 
+code("""# балансировка: ограничиваем мажоритарные классы (ordinary_spam/crypto_scam/gambling ~десятки тыс.),
+# иначе accuracy завышается за счёт одного класса, а macro-F1 по миноритарным проседает.
+# Заодно это делает обучение mBERT/e5 практичным по времени на выросшем датасете.
+MAX_CLASS = 3000
+parts = [g.sample(n=min(len(g), MAX_CLASS), random_state=42)
+         for _, g in df.groupby("fraud_type")]
+df = pd.concat(parts).sample(frac=1, random_state=42).reset_index(drop=True)
+print("после балансировки:", len(df))
+print(df["fraud_type"].value_counts())
+print("\\nпо языкам:", df["language"].value_counts().to_dict())""")
+
 code("""from sklearn.model_selection import train_test_split
 X_text = df["combined_text"].tolist()
 y = df["fraud_type"].tolist()
@@ -89,13 +100,15 @@ print("Word2Vec:", Xtr_w2v.shape, "| словарь:", len(w2v.wv))""")
 code("""# --- (3) BERT-based: mBERT (bert-base-multilingual-cased), mean-pooling ---
 import torch
 from transformers import AutoModel, AutoTokenizer
+_dev = "cuda" if torch.cuda.is_available() else "cpu"
+print("device:", _dev)
 _btok = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
-_bmodel = AutoModel.from_pretrained("bert-base-multilingual-cased").eval()
+_bmodel = AutoModel.from_pretrained("bert-base-multilingual-cased").eval().to(_dev)
 @torch.no_grad()
-def embed_bert(texts, batch=16):
+def embed_bert(texts, batch=32):
     out = []
     for i in range(0, len(texts), batch):
-        enc = _btok(texts[i:i+batch], padding=True, truncation=True, max_length=256, return_tensors="pt")
+        enc = _btok(texts[i:i+batch], padding=True, truncation=True, max_length=256, return_tensors="pt").to(_dev)
         h = _bmodel(**enc).last_hidden_state
         m = enc.attention_mask.unsqueeze(-1)
         out.append(((h*m).sum(1)/m.sum(1).clamp(min=1)).cpu().numpy())
@@ -105,7 +118,7 @@ print("mBERT:", Xtr_bert.shape)""")
 
 code("""# --- (4) Dense embeddings: multilingual-e5-base (sentence-transformers) ---
 from sentence_transformers import SentenceTransformer
-e5 = SentenceTransformer("intfloat/multilingual-e5-base", device="cpu")
+e5 = SentenceTransformer("intfloat/multilingual-e5-base", device=_dev)
 def embed_e5(texts):
     return np.asarray(e5.encode(["query: "+t for t in texts], normalize_embeddings=True,
                                 show_progress_bar=False, batch_size=32))

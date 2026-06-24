@@ -16,7 +16,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from backend.app.api import analyze, graph, health, search, sessions  # noqa: E402
+from backend.app.api import analyze, graph, health, knowledge, search, sessions  # noqa: E402
 from backend.app.clients.llm import make_llm_client  # noqa: E402
 from backend.app.clients.neo4j import ensure_constraints, make_neo4j_driver  # noqa: E402
 from backend.app.clients.qdrant import ensure_collection, make_qdrant_client  # noqa: E402
@@ -39,6 +39,16 @@ async def lifespan(app: FastAPI):
     if s.enable_graph:
         try:
             await ensure_constraints(app.state.neo4j)
+        except Exception:  # noqa: BLE001
+            pass
+    if s.enable_kb:
+        # Коллекция KB-агента + автоиндексация карточек, если пусто (идемпотентно).
+        try:
+            from backend.app.services import knowledge as kb
+
+            await kb.ensure_kb_collection(app.state.qdrant)
+            if await kb.kb_count(app.state.qdrant) == 0:
+                await kb.index_cards(app.state.qdrant)
         except Exception:  # noqa: BLE001
             pass
 
@@ -68,6 +78,7 @@ app.include_router(analyze.router)
 app.include_router(graph.router)
 app.include_router(search.router)
 app.include_router(sessions.router)
+app.include_router(knowledge.router)
 
 
 @app.get("/")

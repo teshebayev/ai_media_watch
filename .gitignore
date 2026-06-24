@@ -12,6 +12,8 @@ __pycache__/
 data/raw/**
 data/processed/*.jsonl
 data/processed/*.csv
+data/processed/*.log
+data/shadow/
 !data/**/.gitkeep
 
 # media / models

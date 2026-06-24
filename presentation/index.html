@@ -113,9 +113,11 @@
       </h1>
       <div class="badge-row center" style="justify-content:center">
         <span class="tag b">uv</span><span class="tag b">FastAPI</span>
-        <span class="tag b">vLLM</span><span class="tag b">Qdrant</span>
-        <span class="tag b">Neo4j</span><span class="tag b">Whisper</span>
-        <span class="tag b">PaddleOCR</span><span class="tag b">Docker Compose</span>
+        <span class="tag b">vLLM · Qwen2.5</span><span class="tag b">Qdrant</span>
+        <span class="tag b">Neo4j</span><span class="tag b">Postgres</span>
+        <span class="tag b">Whisper</span><span class="tag b">EasyOCR</span>
+        <span class="tag b">Deepfake ViT</span><span class="tag b">Next.js</span>
+        <span class="tag b">Docker Compose</span>
       </div>
       <p style="margin-top:26px;max-width:760px;margin-left:auto;margin-right:auto" class="small">
         Система не выносит юридическое обвинение. Она автоматически выявляет
@@ -153,42 +155,49 @@
     <div class="kicker">Сквозной пайплайн · ТЗ §2</div>
     <h2>Как материал проходит через систему</h2>
     <div class="flow">
-      <div class="node">Загрузка: видео / аудио / пост / ссылка</div>
+      <div class="node">Загрузка: текст / ссылка / аудио-звонок / видео</div>
       <div class="arr">↓</div>
-      <div class="node hl">Media Agent — видео→кадры+аудио, ASR, OCR</div>
+      <div class="node hl">Ingest + Media — yt-dlp/httpx, ffmpeg, Whisper ASR, EasyOCR → combined_text</div>
       <div class="arr">↓</div>
-      <div class="node hl">Entity Extraction — URL, домены, Telegram, телефоны, промокоды, суммы, кошельки</div>
+      <div class="node hl">Entity Extraction — URL, домены, Telegram, телефоны(маска), промокоды, суммы, кошельки</div>
       <div class="arr">↓</div>
       <div class="node hl">Scenario Detection — illegal_gambling_promo, fake_egov_call, investment_scam …</div>
       <div class="arr">↓</div>
       <div class="row">
         <div class="node">Similarity · Qdrant</div>
         <div class="node">Shadow Graph · Neo4j</div>
+        <div class="node">Deepfake-детектор</div>
+        <div class="node">OSINT / репутация</div>
       </div>
       <div class="arr">↓</div>
-      <div class="node hl">Risk Engine — risk_score + risk_level</div>
+      <div class="node hl">Risk Engine — детерминированный risk_score + risk_level</div>
       <div class="arr">↓</div>
-      <div class="node">Analyst Report — evidence · entities · signals · recommendation</div>
+      <div class="row">
+        <div class="node">Analyst Report — evidence · entities · signals</div>
+        <div class="node">Postgres — журнал сеансов + ручная проверка</div>
+      </div>
     </div>
   </section>
 
   <!-- 4. ARCHITECTURE / STACK -->
   <section class="slide" data-section="Архитектура">
-    <div class="kicker">Целевая схема развёртывания</div>
+    <div class="kicker">Схема развёртывания · docker compose</div>
     <h2>Сервисы и слои</h2>
     <div class="stack">
-      <div class="layer"><span class="lbl">Клиент</span><span class="desc">Streamlit / curl / фронт → HTTP</span></div>
+      <div class="layer"><span class="lbl">Клиент</span><span class="desc">Next.js-консоль (:3000) · статический фронт · curl → HTTP (CORS *)</span></div>
       <div class="layer" style="border-color:var(--accent)">
         <span class="lbl" style="color:var(--txt)">FastAPI · api</span>
-        <span class="desc">Оркестратор: Media · Entity · Scenario · Similarity · Graph · Risk Engine</span>
+        <span class="desc">Оркестратор: Ingest · Media · Entity · Scenario · Similarity · Graph · Deepfake · OSINT · Risk Engine · AFM-агент</span>
       </div>
-      <div class="layer"><span class="lbl">vLLM</span><span class="desc">LLM-сервис, OpenAI-совместимый API (классификация сценария, добор сущностей, объяснения)</span></div>
-      <div class="layer"><span class="lbl">Qdrant</span><span class="desc">Векторный поиск похожих известных scam-кейсов (multilingual-e5)</span></div>
+      <div class="layer"><span class="lbl">vLLM</span><span class="desc">Qwen2.5 (GPU, профиль <code>gpu</code>): классификация сценария + ответы AFM-агента</span></div>
+      <div class="layer"><span class="lbl">Qdrant</span><span class="desc">2 коллекции: <code>scam_cases</code> (similarity, e5) + <code>afm_knowledge</code> (RAG, гибридный поиск)</span></div>
       <div class="layer"><span class="lbl">Neo4j</span><span class="desc">Shadow Graph — узлы, связи, повторяемость сущностей</span></div>
+      <div class="layer"><span class="lbl">Postgres</span><span class="desc">Персистентный журнал сеансов + ручная проверка аналитика (Alembic-миграции, Adminer-UI)</span></div>
+      <div class="layer"><span class="lbl">Deepfake</span><span class="desc">Внешний детектор (свой venv): ViT-лицо + Wav2Vec2-голос → media_anomalies</span></div>
     </div>
-    <div class="footnote">Каждый внешний слой за фичефлагом:
-      <code>ENABLE_LLM</code> · <code>ENABLE_SIMILARITY</code> · <code>ENABLE_GRAPH</code>.
-      Минимальный срез (regex + сигналы + risk_engine) работает без GPU и внешних сервисов.</div>
+    <div class="footnote">Каждый слой за фичефлагом:
+      <code>ENABLE_LLM</code> · <code>ENABLE_SIMILARITY</code> · <code>ENABLE_GRAPH</code> · <code>ENABLE_DB</code> · <code>ENABLE_DEEPFAKE</code> · <code>ENABLE_OSINT</code>.
+      Минимальный срез (regex + сигналы + risk_engine) работает без GPU и внешних сервисов. Слим-образ api ~2.3 ГБ (CPU-torch).</div>
   </section>
 
   <!-- 5. REPO STRUCTURE -->
@@ -200,20 +209,25 @@
 backend/app/
 ├── main.py        <span class="cm"># lifespan + DI</span>
 ├── config.py      <span class="cm"># pydantic-settings (env)</span>
-├── api/           <span class="cm"># роутеры /analyze /graph …</span>
-├── services/      <span class="cm"># агенты = сервисы</span>
+├── api/           <span class="cm"># /analyze /graph /search</span>
+│                  <span class="cm"># /sessions /agent /health</span>
+├── services/      <span class="cm"># pipeline · scenario · media</span>
+│                  <span class="cm"># deepfake · osint · knowledge …</span>
 ├── clients/       <span class="cm"># vLLM · Qdrant · Neo4j</span>
+├── db/            <span class="cm"># модели + Alembic-миграции</span>
 └── schemas/       <span class="cm"># единый JSONL-формат §5</span></pre>
-      <pre><span class="cm"># src — код студентов</span>
+      <pre><span class="cm"># src — пайплайн-код</span>
 src/
-├── parsers/       <span class="cm"># youtube tg ready kz</span>
-├── media/         <span class="cm"># asr_whisper · ocr_paddle</span>
-├── extraction/    <span class="cm"># regex · signal_extractor</span>
+├── parsers/       <span class="cm"># youtube · tg · ready · kz</span>
+├── ingest/        <span class="cm"># url_fetcher (yt-dlp/httpx)</span>
+├── media/         <span class="cm"># asr_whisper · ocr (EasyOCR)</span>
+├── extraction/    <span class="cm"># regex · signal_extractor · NER</span>
+├── synthetic/     <span class="cm"># gen_llm · augment_codeswitch</span>
 ├── risk/          <span class="cm"># risk_engine.py</span>
 ├── graph/         <span class="cm"># cypher · build_graph</span>
-└── app/           <span class="cm"># streamlit_app.py</span>
+└── build_dataset.py · index_dataset.py
 
-infra/docker-compose.yml · data/ · docs/ · tests/</pre>
+infra/docker-compose.yml · notebooks/ · data/ · docs/</pre>
     </div>
   </section>
 
@@ -225,10 +239,10 @@ infra/docker-compose.yml · data/ · docs/ · tests/</pre>
       <div>
         <ul>
           <li><b>ffmpeg</b> извлекает аудио (16 кГц моно) и кадры (1 кадр / 2 сек)</li>
-          <li><b>faster-whisper</b> (small, int8) — ASR аудио → transcript</li>
-          <li><b>PaddleOCR</b> — текст с кадров (домены, промокоды, QR-подписи)</li>
+          <li><b>faster-whisper</b> (small int8 / medium на GPU) — ASR аудио → transcript</li>
+          <li><b>EasyOCR</b> (CPU, кириллица+латиница) — текст с кадров/превью (домены, промокоды)</li>
           <li>Тяжёлые синхронные операции → <code>asyncio.to_thread</code></li>
-          <li>Для звонков — версия ASR с таймкодами для детекции этапов</li>
+          <li>Для звонков — детекция этапов разговора по transcript</li>
         </ul>
         <div class="footnote">План «Риски»: если медленно — заранее посчитанные транскрипты;
           OCR прогнать офлайн и отдавать из кэша.</div>
@@ -236,8 +250,8 @@ infra/docker-compose.yml · data/ · docs/ · tests/</pre>
       <pre><span class="kw">async def</span> <span class="fn">process_video</span>(path):
   wav    = extract_audio(path)   <span class="cm"># ffmpeg</span>
   frames = extract_frames(path)  <span class="cm"># ffmpeg fps=0.5</span>
-  transcript = whisper(wav)
-  ocr_text   = paddle(frames)
+  transcript = whisper(wav)     <span class="cm"># faster-whisper</span>
+  ocr_text   = easyocr(frames)  <span class="cm"># EasyOCR (CPU)</span>
   <span class="kw">return</span> MediaResult(transcript, ocr_text)
 
 <span class="cm"># combined_text = transcript + ocr_text</span></pre>
@@ -438,21 +452,140 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
     </div>
   </section>
 
+  <!-- 12b. DEEPFAKE DETECTOR -->
+  <section class="slide" data-section="Deepfake">
+    <div class="kicker"><span class="num">07</span>Deepfake / Voice anomaly</div>
+    <h2>Детектор синтетики в видео</h2>
+    <div class="grid g2">
+      <div>
+        <ul>
+          <li>Внешний детектор (репо <code>fakeface-deepfake-detector</code>) в <b>отдельном venv</b></li>
+          <li>Конфликт версий (torch 2.6/cu124 vs основной 2.12) решён <b>изоляцией процесса</b> — вызов через subprocess</li>
+          <li><b>ViT</b> — кадры лица → <code>possible_deepfake</code></li>
+          <li><b>Wav2Vec2</b> — дорожка голоса → <code>synthetic_voice_suspected</code></li>
+          <li>+ <code>lip_sync_anomaly</code> — рассинхрон губ/звука</li>
+          <li>Срабатывает на <code>/analyze/video</code> и <code>/analyze/url</code> с <code>deep:true</code></li>
+        </ul>
+        <div class="footnote">Аномалии пишутся в <code>media_anomalies</code> и конвертируются в риск-сигналы для скоринга.</div>
+      </div>
+      <pre><span class="cm"># subprocess в изолированный venv</span>
+anomalies = <span class="fn">analyze_video_file</span>(path)
+<span class="cm"># {has_face, possible_deepfake,</span>
+<span class="cm">#  synthetic_voice_suspected, lip_sync_anomaly}</span>
+
+signals = <span class="fn">anomalies_to_signals</span>(anomalies)
+<span class="cm"># → possible_deepfake (+ вес)</span>
+<span class="cm">#   synthetic_voice_suspected (+ вес)</span>
+<span class="cm"># уходят в общий агрегатор сигналов</span></pre>
+    </div>
+  </section>
+
+  <!-- 12c. OSINT / REPUTATION -->
+  <section class="slide" data-section="OSINT">
+    <div class="kicker"><span class="num">08</span>OSINT · репутация доменов</div>
+    <h2>Проверка извлечённых доменов</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Эвристики (офлайн, без ключей)</h3>
+        <ul>
+          <li><b>Тайпсквоттинг KZ-брендов</b>: <code>kaspi-bonus.click</code>, <code>halyk-pay…</code>, <code>egov-…</code></li>
+          <li><b>Подозрительные TLD</b>: <code>.click .top .xyz .casino …</code></li>
+          <li><b>Мусорная структура</b> хоста (длинные дефисы, цифро-буквы)</li>
+        </ul>
+        <h3 style="margin-top:14px">Внешний фид (опционально)</h3>
+        <p class="small"><b>PhishTank</b> по флагу <code>ENABLE_PHISHTANK</code> + ключ. По умолчанию — только эвристики.</p>
+      </div>
+      <div>
+        <pre><span class="cm"># официальные домены → чисто</span>
+kaspi.kz            <span class="op">→</span> []
+<span class="cm"># фейк под бренд → сигналы</span>
+kaspi-bonus.click   <span class="op">→</span> phishing_url,
+                      suspicious_domain</pre>
+        <div class="badge-row">
+          <span class="tag">phishing_url</span>
+          <span class="tag">suspicious_domain</span>
+          <span class="tag">casino_domain_found</span>
+        </div>
+        <div class="footnote">Модуль <code>services/osint.py</code>. Сигналы добавляются к доменам из <code>entities</code> и идут в скоринг.</div>
+      </div>
+    </div>
+  </section>
+
   <!-- 13. API -->
   <section class="slide" data-section="API">
     <div class="kicker">FastAPI · эндпоинты</div>
     <h2>Внешний контракт</h2>
     <table>
       <tr><th>Метод</th><th>Путь</th><th>Назначение</th></tr>
-      <tr><td class="mono">POST</td><td class="mono">/analyze/text</td><td>пост/ссылка → entity → scenario → пайплайн (синхронно)</td></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/text</td><td>текст → entity → scenario → пайплайн (синхронно)</td></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/url</td><td>ссылка (YouTube/HTML/TG) → извлечение → пайплайн; <code>deep</code> → OCR+deepfake</td></tr>
       <tr><td class="mono">POST</td><td class="mono">/analyze/audio</td><td>звонок → Whisper → этапы → пайплайн</td></tr>
-      <tr><td class="mono">POST</td><td class="mono">/analyze/video</td><td>ffmpeg → ASR + OCR → пайплайн</td></tr>
-      <tr><td class="mono">GET</td><td class="mono">/graph/entity/{value}</td><td>повторяемость сущности из Neo4j</td></tr>
+      <tr><td class="mono">POST</td><td class="mono">/analyze/video</td><td>ffmpeg → ASR + OCR + deepfake → пайплайн</td></tr>
+      <tr><td class="mono">GET</td><td class="mono">/graph/entity/{v} · /graph/network</td><td>повторяемость сущности и подграф из Neo4j</td></tr>
       <tr><td class="mono">GET</td><td class="mono">/search/similar</td><td>похожие кейсы из Qdrant</td></tr>
-      <tr><td class="mono">GET</td><td class="mono">/health</td><td>пинг vLLM / Qdrant / Neo4j</td></tr>
+      <tr><td class="mono">·</td><td class="mono">/sessions · /sessions/{id}/review · /stats</td><td>журнал сеансов, ручная проверка, агрегаты (Postgres)</td></tr>
+      <tr><td class="mono">·</td><td class="mono">/agent/{ask,search,reindex,status}</td><td>AFM Knowledge Agent (RAG)</td></tr>
+      <tr><td class="mono">GET</td><td class="mono">/health</td><td>пинг vLLM / Qdrant / Neo4j / Postgres</td></tr>
     </table>
     <div class="footnote">DI через <code>lifespan</code> + <code>Depends</code>: клиенты в
       <code>app.state</code>. Медиа-эндпоинты тяжёлые → при нагрузке выносятся в фоновую задачу с job-таблицей.</div>
+  </section>
+
+  <!-- 13b. PERSISTENCE / POSTGRES -->
+  <section class="slide" data-section="Персистентность">
+    <div class="kicker"><span class="num">09</span>Postgres · журнал + human-in-the-loop</div>
+    <h2>Каждый анализ сохраняется</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Таблицы (SQLAlchemy 2.0 async + Alembic)</h3>
+        <ul>
+          <li><code>analysis_sessions</code> — отчёт, сигналы, сущности, <code>media_anomalies</code>, latency, использован ли LLM</li>
+          <li><code>analyst_reviews</code> — ручная проверка: подтвердить / переопределить метку</li>
+        </ul>
+        <p class="small" style="margin-top:10px">Запись <b>best-effort</b>: сбой БД не валит анализ. Миграции накатываются на старте контейнера (<code>alembic upgrade head</code>).</p>
+        <div class="footnote">Подтверждённые аналитиком метки можно влить обратно в обучающий датасет — петля улучшения.</div>
+      </div>
+      <div>
+        <h3>Доступ к данным</h3>
+        <ul>
+          <li><code>GET /sessions</code> · <code>/sessions/{id}</code> — история</li>
+          <li><code>POST /sessions/{id}/review</code> — вердикт аналитика</li>
+          <li><code>GET /stats</code> — агрегаты по <code>risk_level</code> / <code>fraud_type</code></li>
+        </ul>
+        <h3 style="margin-top:14px">UI для данных</h3>
+        <p class="small"><b>Adminer</b> (:8081) — таблицы и SQL; всё видно и во фронте (вкладка «История/Статистика»).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13c. AFM KNOWLEDGE AGENT -->
+  <section class="slide" data-section="AFM-агент">
+    <div class="kicker"><span class="num">10</span>AFM Knowledge Agent · RAG</div>
+    <h2>Помощник по защите от мошенничества</h2>
+    <div class="grid g2">
+      <div>
+        <p>Q&A по базе знаний АФМ («что делать при подозрительном звонке/сообщении»).
+        Хранилище — <b>та же Qdrant</b>, отдельная коллекция <code>afm_knowledge</code>.</p>
+        <h3>Гибридный поиск</h3>
+        <ul>
+          <li><b>dense</b> — multilingual-e5 (семантика ru/kz/en)</li>
+          <li><b>sparse</b> — BM25-style (точные триггер-фразы), IDF считает сам Qdrant</li>
+          <li>слияние — серверный <b>RRF</b> в Qdrant</li>
+        </ul>
+        <p class="small">Ответ генерирует vLLM по найденным карточкам. Без LLM — детерминированный <b>fallback</b> из полей карточки (агент остаётся полезным).</p>
+      </div>
+      <pre><span class="kw">POST</span> /agent/ask
+{ <span class="str">"question"</span>: <span class="str">"звонят из банка,</span>
+   <span class="str">просят код из SMS — что делать?"</span> }
+
+<span class="op">→</span> {
+  <span class="str">"answer"</span>: <span class="str">"Не называйте код…"</span>,
+  <span class="str">"is_emergency"</span>: <span class="kw">true</span>,
+  <span class="str">"matched_cards"</span>: [ … ],
+  <span class="str">"sources"</span>: [ {name, url} ],
+  <span class="str">"used_llm"</span>: <span class="kw">true</span>
+}</pre>
+    </div>
   </section>
 
   <!-- 14. DATA FORMAT -->
@@ -537,6 +670,36 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
     </div>
   </section>
 
+  <!-- 16b. DEPLOYMENT -->
+  <section class="slide" data-section="Развёртывание">
+    <div class="kicker"><span class="num">11</span>Одна команда · docker compose</div>
+    <h2>Развёртывание всего стека</h2>
+    <div class="grid g2">
+      <div>
+        <pre><span class="cm"># всё в контейнерах (+ сборка образов)</span>
+make stack-docker
+<span class="cm"># фронт :3000 · API :8088 · Adminer :8081</span>
+<span class="cm"># Neo4j :7474 · Qdrant :6333 · PG :5433</span>
+
+<span class="cm"># + LLM-слой (нужен GPU):</span>
+docker compose --profile gpu up -d vllm</pre>
+        <ul>
+          <li>Браузер → <code>:3000</code> (Next.js) и <code>fetch :8088</code> к API (CORS *)</li>
+          <li>Внутри сети сервисы — по именам (<code>qdrant</code>/<code>neo4j</code>/<code>postgres</code>/<code>vllm</code>)</li>
+          <li><code>vllm</code> — в профиле <code>gpu</code>, по умолчанию выключен</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Два фронта поверх одного API</h3>
+        <ul>
+          <li><b>Next.js-консоль</b> (репо <code>av1cu/ai_media_watch_frontend</code>) — лендинг + <code>/console</code>: анализ, граф, История/Статистика, AFM-агент</li>
+          <li><b>Статический</b> <code>frontend/index.html</code> — лёгкий запасной UI (vis-network граф) без сборки</li>
+        </ul>
+        <div class="footnote">api-образ <b>слим ~2.3 ГБ</b>: CPU-torch + только runtime-зависимости, без обучающего стека и CUDA-библиотек. Тяжёлые модели (NER/TTS/обучение) — отдельный путь.</div>
+      </div>
+    </div>
+  </section>
+
   <!-- 17. TEAM -->
   <section class="slide" data-section="Команда">
     <div class="kicker">Распределение · ТЗ §13</div>
@@ -546,11 +709,11 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
       <tr><td class="mono">1</td><td><b>YouTube</b> — metadata по gambling/invest/crypto</td><td class="mono small">youtube_candidates_clean.jsonl</td></tr>
       <tr><td class="mono">2</td><td><b>Telegram</b> — export / готовый датасет</td><td class="mono small">telegram_messages.jsonl</td></tr>
       <tr><td class="mono">3</td><td><b>Ready datasets</b> — ScamSpot, phishing, crypto</td><td class="mono small">ready_dataset_examples.jsonl</td></tr>
-      <tr><td class="mono">4</td><td><b>ASR/OCR</b> — Whisper, PaddleOCR</td><td class="mono small">audio_transcripts · video_ocr</td></tr>
+      <tr><td class="mono">4</td><td><b>ASR/OCR</b> — Whisper, EasyOCR</td><td class="mono small">audio_transcripts · video_ocr</td></tr>
       <tr><td class="mono">5</td><td><b>KZ calls</b> — синтетика eGov/КНБ/банк</td><td class="mono small">kz_call_transcripts.jsonl</td></tr>
       <tr><td class="mono">6</td><td><b>FakeFace</b> — deepfake/voice anomaly</td><td class="mono small">deepfake_examples.jsonl</td></tr>
       <tr><td class="mono">7</td><td><b>Entity + Risk</b> — regex, scoring</td><td class="mono small">entities_extracted · risk_engine.py</td></tr>
-      <tr><td class="mono">8</td><td><b>Shadow Graph + UI</b> — Neo4j, Streamlit</td><td class="mono small">entities_nodes/edges.csv · streamlit_app.py</td></tr>
+      <tr><td class="mono">8</td><td><b>Shadow Graph + UI</b> — Neo4j, Next.js-консоль</td><td class="mono small">build_graph · frontend (av1cu)</td></tr>
     </table>
   </section>
 
@@ -576,9 +739,10 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
       </div>
     </div>
     <div class="card" style="margin-top:18px">
-      <h3>Минимальный объём для хакатона</h3>
-      <p style="margin-bottom:0" class="small">≈ <b>200 размеченных примеров</b>: казино 20 · звонки 30 ·
-      пирамиды 40 · phishing 30 · crypto 20 · deepfake 20 · legit/education 40.</p>
+      <h3>Итоговый датасет</h3>
+      <p style="margin-bottom:0" class="small"><b>834 размеченных кейса</b>: синтетика звонков 160 ·
+      посты 81 · Stop-Piramida 593 (транскрибировано Whisper) + аугментация kk (перевод, LLM-генерация,
+      code-switch). Индексирован в Qdrant, загружен в Neo4j (834 узла / 875 рёбер).</p>
     </div>
   </section>
 
@@ -601,11 +765,11 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
         <h3>Риски → план Б</h3>
         <table>
           <tr><th>Риск</th><th>Запасной</th></tr>
-          <tr><td>Нет GPU для vLLM</td><td>модель 1.5B / Ollama</td></tr>
-          <tr><td>Whisper медленный</td><td>small int8 / кэш</td></tr>
-          <tr><td>PaddleOCR тяжело</td><td>OCR офлайн → кэш</td></tr>
-          <tr><td>Не успели Qdrant</td><td>флаг off, скоринг живёт</td></tr>
-          <tr><td>Не успели Neo4j</td><td>граф из CSV в Streamlit</td></tr>
+          <tr><td>Нет GPU для vLLM</td><td><code>ENABLE_LLM=false</code> — пайплайн живёт на regex+сигналах</td></tr>
+          <tr><td>Whisper медленный</td><td>small int8 / заранее посчитанные транскрипты</td></tr>
+          <tr><td>EasyOCR тяжело</td><td>OCR офлайн → кэш</td></tr>
+          <tr><td>Qdrant/Neo4j недоступны</td><td>фичефлаги off, детерминированный скоринг остаётся</td></tr>
+          <tr><td>Конфликт версий deepfake</td><td>изоляция venv + subprocess</td></tr>
         </table>
       </div>
     </div>
@@ -621,7 +785,7 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
         <span class="accent">объяснимую цепочку доказательств</span> и передаёт
         аналитику не вердикт, а обоснованный риск-сигнал.</p>
       <div class="badge-row center" style="justify-content:center;margin-top:26px">
-        <span class="tag">200 примеров · MVP</span>
+        <span class="tag">834 кейса · multimodal</span>
         <span class="tag">explainable risk report</span>
         <span class="tag">human-in-the-loop</span>
       </div>
@@ -630,7 +794,7 @@ scam_near = [h <span class="kw">for</span> h <span class="kw">in</span> hits
 
 </div>
 
-<div id="counter">01 / 20</div>
+<div id="counter">01 / 25</div>
 <div class="hint">← → · Space · клик по краям · F — полный экран · O — обзор</div>
 
 <script>

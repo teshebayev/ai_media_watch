@@ -15,11 +15,40 @@ import glob
 import json
 import os
 
-from backend.app.schemas.enums import RiskLevel
+from backend.app.schemas.enums import FraudType, Label, RiskLevel
 from backend.app.schemas.models import AnalysisRecord
 from src.risk.risk_engine import evaluate
 
 OUT = "data/processed/ai_media_watch_dataset.jsonl"
+
+# Нормализация перед записью (Шаг 8.5):
+MAX_COMBINED_CHARS = 4000  # обрезаем гигантские склейки (был выброс 228k символов)
+# приоритет при text-дедупе: информативный лейбл важнее «unclear»/пустого
+_LABEL_PRIO = {Label.scam: 0, Label.spam: 1, Label.legit: 2, Label.unclear: 3, None: 4}
+
+
+def normalize(records: list[AnalysisRecord]) -> list[AnalysisRecord]:
+    """Чистка датасета: (1) чиним таксономию лейблов, (2) режем выбросы по длине,
+    (3) дедуп по combined_text (оставляем самую информативную копию)."""
+    # (1) ordinary_spam, ошибочно помеченный unclear → spam (убирает ~110k «мусорного» unclear)
+    for r in records:
+        if r.fraud_type == FraudType.ordinary_spam and r.label == Label.unclear:
+            r.label = Label.spam
+    # (2) обрезка длинных текстов
+    for r in records:
+        if r.combined_text and len(r.combined_text) > MAX_COMBINED_CHARS:
+            r.combined_text = r.combined_text[:MAX_COMBINED_CHARS]
+    # (3) дедуп по тексту; пустые тексты не схлопываем (ключуем по id)
+    best: dict[str, AnalysisRecord] = {}
+    for r in records:
+        key = (r.combined_text or "").strip()
+        if not key:
+            best[f"__empty__{r.id}"] = r
+            continue
+        cur = best.get(key)
+        if cur is None or _LABEL_PRIO[r.label] < _LABEL_PRIO[cur.label]:
+            best[key] = r
+    return list(best.values())
 
 # Источники (порядок = приоритет при дедупе по id)
 SOURCES = [
@@ -30,6 +59,14 @@ SOURCES = [
     "data/processed/ready_dataset_examples.jsonl",
     "data/processed/youtube_candidates_clean.jsonl",
     "data/processed/telegram_messages.jsonl",
+    # batch Jun-2026: внешние парсенные датасеты (§5-формат)
+    "data/processed/kz_call_transcripts_extra.jsonl",
+    "data/processed/high_risk_full_final.jsonl",
+    "data/processed/mshenoda_spam_messages.jsonl",
+    # аугментация под казахский + закрытие дыр (ревью §): перевод, LLM-генерация, code-switch
+    "data/processed/kk_translated_from_ru.jsonl",
+    "data/processed/synthetic_llm.jsonl",
+    "data/processed/codeswitch_kk_ru.jsonl",
 ]
 
 
@@ -56,7 +93,7 @@ def main() -> None:
                         rec.risk_level = RiskLevel(res["risk_level"])
                     seen.setdefault(rec.id, rec)
 
-    records = list(seen.values())
+    records = normalize(list(seen.values()))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         for rec in records:

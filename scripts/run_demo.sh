@@ -19,12 +19,12 @@ export ENABLE_DB=${ENABLE_DB:-true}
 export DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://finguard:finguard_pass@localhost:5433/finguard}
 export TOKENIZERS_PARALLELISM=false
 
-echo "→ FastAPI:  http://localhost:8080  (docs: /docs)"
+echo "→ FastAPI:  http://localhost:8088  (docs: /docs)"
 echo "→ Фронт:    http://localhost:8090"
 echo
 
 # бэкенд
-.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8080 &
+.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8088 &
 API=$!
 # статический фронт
 python3 -m http.server 8090 --directory frontend &
