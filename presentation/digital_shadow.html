@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Shadow — архитектура модуля</title>
+<style>
+  :root{
+    --bg:#0b0f17; --bg2:#111726; --panel:#161e30; --line:#243047;
+    --txt:#e6ecf5; --muted:#8da2c0; --accent:#4da3ff; --accent2:#7c5cff;
+    --green:#35d07f; --yellow:#f5c451; --orange:#ff9f43; --red:#ff5d6c;
+    --mono:"SFMono-Regular", Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);overflow:hidden}
+  #progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;z-index:50;transition:width .3s ease}
+  #topbar{position:fixed;top:0;right:0;left:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;z-index:40;font-size:13px;color:var(--muted)}
+  #topbar .brand{font-weight:700;color:var(--txt);letter-spacing:.5px}
+  #topbar .brand span{color:var(--accent)}
+  #topbar .section{font-family:var(--mono)}
+  .deck{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:64px 56px 56px}
+  .slide{position:absolute;width:min(1180px,94vw);max-height:88vh;overflow:auto;opacity:0;transform:translateY(18px) scale(.99);pointer-events:none;transition:opacity .4s ease,transform .4s ease}
+  .slide.active{opacity:1;transform:none;pointer-events:auto}
+  .slide::-webkit-scrollbar{width:8px}.slide::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+  .kicker{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:52px;line-height:1.05;letter-spacing:-1px;margin-bottom:18px}
+  h1 .sub{display:block;font-size:21px;color:var(--muted);font-weight:500;margin-top:14px;letter-spacing:0}
+  h2{font-size:33px;margin-bottom:20px;letter-spacing:-.5px}
+  h2 .num{font-family:var(--mono);color:var(--accent);font-size:20px;margin-right:12px}
+  h3{font-size:17px;margin-bottom:9px;color:var(--txt)}
+  p{color:var(--muted);font-size:16px;line-height:1.6;margin-bottom:12px}
+  ul{list-style:none;margin:6px 0}
+  li{color:var(--muted);font-size:15px;line-height:1.7;padding-left:20px;position:relative}
+  li::before{content:"▸";position:absolute;left:0;color:var(--accent)}
+  li b,p b{color:var(--txt)}
+  code{font-family:var(--mono);background:var(--bg2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.85em;color:#bcd0ee}
+  .grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{display:flex;align-items:center;gap:9px}
+  .tag{display:inline-block;font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);background:var(--bg2);color:var(--muted);margin:3px 4px 3px 0}
+  .tag.b{color:var(--accent);border-color:#2a4a6e}
+  pre{background:#0a0e16;border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.55;color:#cdd9ee}
+  .cm{color:#5b6b86;font-style:italic}.kw{color:#7c9cff}.str{color:#8fd6a0}.op{color:#ff9f43}.fn{color:#f5c451}
+  .flow{display:flex;flex-direction:column;gap:7px;align-items:center;font-family:var(--mono);font-size:13.5px}
+  .flow .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 16px;min-width:300px;text-align:center}
+  .flow .node.hl{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;color:var(--txt)}
+  .flow .arr{color:var(--accent);font-size:15px}.flow .row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line)}
+  th{color:var(--accent);font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  td{color:var(--muted)}td b{color:var(--txt)}td.mono,th.mono{font-family:var(--mono);font-size:13px}
+  .pill{display:inline-block;padding:2px 10px;border-radius:20px;font-family:var(--mono);font-size:12px;font-weight:700}
+  .pill.low{background:rgba(53,208,127,.15);color:var(--green)}.pill.med{background:rgba(245,196,81,.15);color:var(--yellow)}
+  .pill.high{background:rgba(255,159,67,.15);color:var(--orange)}.pill.crit{background:rgba(255,93,108,.15);color:var(--red)}
+  .stack{display:flex;flex-direction:column;gap:9px}
+  .layer{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+  .layer .lbl{font-family:var(--mono);font-size:12px;color:var(--accent);width:130px;flex:none}
+  .layer .desc{color:var(--muted);font-size:14.5px}
+  .hint{position:fixed;bottom:14px;left:0;right:0;text-align:center;color:var(--muted);font-size:12px;font-family:var(--mono);z-index:40}
+  #counter{position:fixed;bottom:14px;right:22px;font-family:var(--mono);font-size:12px;color:var(--muted);z-index:40}
+  .navzone{position:fixed;top:46px;bottom:0;width:18%;z-index:30;cursor:pointer}#prevZone{left:0}#nextZone{right:0}
+  .center{text-align:center}.badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.small{font-size:13px}.accent{color:var(--accent)}
+  .footnote{font-size:12.5px;color:var(--muted);font-family:var(--mono);margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="topbar"><div class="brand">Digital<span>Shadow</span> · OSINT / DarkNet</div><div class="section" id="sectionLabel"></div></div>
+<div class="navzone" id="prevZone"></div><div class="navzone" id="nextZone"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 -->
+  <section class="slide" data-section="Обзор">
+    <div class="center">
+      <div class="kicker">Модуль FinGuard · второй продукт на общем движке</div>
+      <h1>Digital Shadow
+        <span class="sub">Мониторинг открытых ресурсов и DarkNet: контрабанда, дропы,<br>подозрительные криптокошельки, утечки баз РК — риск-сигналы и приоритизация</span>
+      </h1>
+      <div class="badge-row center" style="justify-content:center">
+        <span class="tag b">core (общий движок)</span><span class="tag b">FastAPI :8090</span>
+        <span class="tag b">Neo4j</span><span class="tag b">Postgres</span>
+        <span class="tag b">коллекторы</span><span class="tag b">TF-IDF+LogReg</span>
+      </div>
+      <p class="small" style="max-width:760px;margin:24px auto 0">Система выявляет риск-сигналы и
+      передаёт материал на ручную проверку аналитика — не выносит обвинение (§0).</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide" data-section="Обзор">
+    <div class="kicker">Один core — два продукта</div>
+    <h2>Где Digital Shadow в системе</h2>
+    <div class="grid g2">
+      <div class="card"><h3>🛡️ AI Media Watch</h3><p>Видео/аудио/посты соцплатформ: казино,
+        пирамиды, мошенничество, deepfake.</p></div>
+      <div class="card" style="border-color:var(--accent)"><h3>🕵️ Digital Shadow</h3><p>OSINT/DarkNet:
+        контрабанда, дропы, крипто-отмыв, утечки БД РК. Графовый анализ скрытых связей.</p></div>
+    </div>
+    <div class="card" style="margin-top:16px"><h3>Общий движок <code>core</code></h3>
+      <p style="margin-bottom:0">Единый формат §5, risk-engine §11, извлечение сущностей,
+      Qdrant, Postgres и <b>один Neo4j</b> → находки двух продуктов связываются по общим узлам.
+      Контракт защищён тестами + CI.</p></div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide" data-section="Пайплайн">
+    <div class="kicker">Сквозной поток</div>
+    <h2>От источника до находки</h2>
+    <div class="flow">
+      <div class="node">Коллектор: File · HttpPage(+Tor) · RSS · DarknetMock</div>
+      <div class="arr">↓</div>
+      <div class="node hl">Извлечение сущностей (core): домены · кошельки · @telegram · телефоны(маска)</div>
+      <div class="arr">↓</div>
+      <div class="row">
+        <div class="node">core: текст-сигналы</div><div class="node">taxonomy: лексикон ru/kk</div>
+        <div class="node">osint · crypto_risk · leak_detector</div>
+      </div>
+      <div class="arr">↓</div>
+      <div class="node hl">classify_category (правила +опц. ML) · shadow_score · prioritize</div>
+      <div class="arr">↓</div>
+      <div class="row"><div class="node">Neo4j: :ShadowItem + общие узлы</div><div class="node">Postgres: shadow_findings</div></div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide" data-section="Коллекторы">
+    <div class="kicker"><span class="num">01</span>Сбор данных</div>
+    <h2>Коллекторы (фреймворк)</h2>
+    <div class="grid g2">
+      <div>
+        <ul>
+          <li><b>FileCollector</b> — JSONL экспортированных листингов (надёжно, легально)</li>
+          <li><b>HttpPageCollector</b> — публичные страницы (httpx); <code>.onion</code> через <code>--proxy socks5h://…</code></li>
+          <li><b>RssCollector</b> — RSS/Atom-ленты (stdlib xml)</li>
+          <li><b>DarknetMock</b> — синтетика для демо</li>
+          <li>CLI <code>collect.py</code>: источник → пайплайн → граф+БД → топ угроз</li>
+        </ul>
+        <div class="footnote">§0: только публичный текст, без контактов/покупок, без хранения ПДн.
+          Наркотики/реальный даркнет — синтетика/research, не краулинг.</div>
+      </div>
+      <pre><span class="cm"># боевой сбор</span>
+make shadow-collect ARGS=<span class="str">"--file inbox.jsonl"</span>
+make shadow-collect ARGS=<span class="str">"--rss URL"</span>
+make shadow-collect ARGS=<span class="str">"--url URL \
+  --proxy socks5h://127.0.0.1:9050"</span>  <span class="cm"># Tor</span></pre>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide" data-section="Таксономия">
+    <div class="kicker"><span class="num">02</span>Категории и сигналы</div>
+    <h2>Таксономия (поверх core)</h2>
+    <div class="badge-row">
+      <span class="tag">contraband_vape</span><span class="tag">contraband_alcohol</span>
+      <span class="tag">drug_trafficking</span><span class="tag">drop_recruitment</span>
+      <span class="tag">suspicious_crypto</span><span class="tag">kz_data_leak</span>
+      <span class="tag">counterfeit_goods</span><span class="tag">document_forgery</span>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div><h3>Шадоу-сигналы (веса)</h3>
+        <div class="badge-row">
+          <span class="tag">iin_dump_mention +45</span><span class="tag">kz_data_leak +40</span>
+          <span class="tag">bad_crypto_wallet +40</span><span class="tag">drop_recruitment +35</span>
+          <span class="tag">drug_slang +35</span><span class="tag">mixer_or_tumbler +30</span>
+          <span class="tag">contraband_keyword +25</span><span class="tag">darknet_listing +25</span>
+        </div>
+      </div>
+      <div><h3>Точность лексикона</h3>
+        <p class="small">Матч с <b>левой границей слова</b> <code>(?&lt;!\w)</code>: «клад» не ловится
+        в «о<b>клад</b>», легальная розница («продам вейп, чек») не идёт в контрабанду —
+        нужны маркеры <code>оптом</code>/<code>без акциз</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide" data-section="Скоринг">
+    <div class="kicker"><span class="num">03</span>Скоринг и приоритизация</div>
+    <h2>Детерминированный риск + приоритет</h2>
+    <div class="grid g2">
+      <pre><span class="fn">shadow_score</span>(signals):
+  w = шадоу-вес <span class="op">или</span> core-вес
+  risk = min(<span class="op">100</span>, Σ w(s))
+  level = low/medium/high/critical
+
+<span class="fn">prioritize</span>():
+  threat = risk × confidence × source + reuse
+  confidence ≤ <span class="op">1.2</span>  (рост с числом сигналов)
+  source: darknet <span class="op">1.0</span> · paste <span class="op">0.9</span> · clearweb <span class="op">0.75</span></pre>
+      <div>
+        <h3>priority</h3>
+        <table>
+          <tr><td class="mono">0–34</td><td><span class="pill low">low</span></td></tr>
+          <tr><td class="mono">35–59</td><td><span class="pill med">medium</span></td></tr>
+          <tr><td class="mono">60–84</td><td><span class="pill high">high</span></td></tr>
+          <tr><td class="mono">85+</td><td><span class="pill crit">urgent</span></td></tr>
+        </table>
+        <div class="footnote">Один и тот же набор сигналов из даркнета приоритетнее, чем из clearweb.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide" data-section="Граф">
+    <div class="kicker"><span class="num">04</span>Главная ценность</div>
+    <h2>Общий граф — мост между продуктами</h2>
+    <div class="grid g2">
+      <div>
+        <p>Источники различаются лейблом (<code>:Video/:Post/:Call</code> у Media,
+        <code>:ShadowItem</code> у Shadow), а <b>сущности — общие узлы</b>:
+        <code>:Domain</code> · <code>:Wallet</code> · <code>:TelegramUsername</code> · <code>:PromoCode</code>.</p>
+        <p class="small">Кошелёк из TikTok-скама и из даркнет-листинга = <b>один узел</b> →
+        видна общая теневая сеть. <code>entity_reuse</code> по <code>name|code|address</code> →
+        сигнал <code>graph_entity_reuse</code>.</p>
+        <div class="footnote">Проверено вживую: общий кошелёк → reuse=2, в окрестности и Video, и ShadowItem.</div>
+      </div>
+      <pre><span class="op">(:Video)</span>      ─[:MENTIONS]─┐
+                            ▼
+                       <span class="op">(:Wallet)</span>  ← один узел
+                            ▲
+<span class="op">(:ShadowItem)</span> ─[:MENTIONS]─┘
+
+<span class="cm"># кросс-продуктовый запрос</span>
+MATCH (e)&lt;-[:MENTIONS]-(s)
+WHERE 'ShadowItem' IN kinds
+  AND 'Video' IN kinds
+RETURN e, uses</pre>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="slide" data-section="Хранилище">
+    <div class="kicker"><span class="num">05</span>Персистентность</div>
+    <h2>Таблица shadow_findings</h2>
+    <div class="grid g2">
+      <div>
+        <ul>
+          <li>Своя таблица (у Shadow своя таксономия), Alembic <code>0003</code></li>
+          <li>Колонки: <code>category · priority · threat_score · risk_level · source_type · signals · entities · wallet_risks</code></li>
+          <li><code>GET /shadow/sessions?category=&priority=</code> — фильтры</li>
+          <li>Best-effort: сбой БД не валит анализ</li>
+        </ul>
+      </div>
+      <pre><span class="cm"># UI: вкладки фронта :8091</span>
+Анализ · Сбор(мок) · Находки · Граф
+
+<span class="cm"># API</span>
+POST /shadow/analyze
+POST /shadow/collect/mock
+GET  /shadow/graph
+GET  /shadow/sessions</pre>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="slide" data-section="Данные">
+    <div class="kicker"><span class="num">06</span>Данные и ML</div>
+    <h2>Датасет самопроверяется, классификатор учится</h2>
+    <div class="grid g3">
+      <div class="card"><h3>seed</h3><p class="small">55 размеченных синтетических кейсов (шаблон).</p></div>
+      <div class="card"><h3>LLM-генерация</h3><p class="small">vLLM пишет листинги, каждый
+        <b>самопроверяется</b> пайплайном → только корректные. 271 валидных.</p></div>
+      <div class="card"><h3>классификатор</h3><p class="small">TF-IDF+LogReg на 326 строк,
+        <b>macro-F1 ≈ 0.98</b>; опц. fallback к правилам.</p></div>
+    </div>
+    <pre style="margin-top:16px">make shadow-seed   <span class="cm"># 55</span>     make shadow-gen    <span class="cm"># +LLM (самопроверка)</span>
+make shadow-eval   <span class="cm"># метрики</span>   make shadow-train  <span class="cm"># ML, macro-F1 ~0.98</span></pre>
+    <div class="footnote">Цикл: генерим → меряем выход по категориям → где низко, расширяем <code>taxonomy.py</code> → перегенерим.</div>
+  </section>
+
+  <!-- 10 -->
+  <section class="slide" data-section="Развёртывание">
+    <div class="kicker"><span class="num">07</span>Развёртывание</div>
+    <h2>Два сервиса, один слой данных</h2>
+    <div class="stack">
+      <div class="layer"><span class="lbl">Браузер</span><span class="desc">Shadow фронт :8091 · Media фронт :3000</span></div>
+      <div class="layer" style="border-color:var(--accent)"><span class="lbl" style="color:var(--txt)">Digital Shadow</span><span class="desc">FastAPI :8090 (<code>/shadow/*</code>), Neo4j+Postgres в lifespan</span></div>
+      <div class="layer"><span class="lbl">AI Media Watch</span><span class="desc">FastAPI :8088 (<code>/analyze</code>, <code>/graph</code>, <code>/agent</code>)</span></div>
+      <div class="layer"><span class="lbl">core</span><span class="desc">общий движок: risk-engine · сущности · graph · Qdrant · Postgres</span></div>
+      <div class="layer"><span class="lbl">Хранилища</span><span class="desc">Neo4j (общий граф) · Postgres · Qdrant</span></div>
+    </div>
+    <div class="footnote">Контракт <code>core</code> защищён тестами + CI: PR одной команды, ломающий core, валит сборку второй.</div>
+  </section>
+
+  <!-- 11 -->
+  <section class="slide" data-section="Безопасность">
+    <div class="kicker"><span class="num">§0</span>Правила</div>
+    <h2>Безопасность данных</h2>
+    <div class="grid g2">
+      <div class="card" style="border-color:rgba(255,93,108,.4)"><h3 style="color:var(--red)">✕ Нельзя</h3>
+        <ul><li>Контакт/покупка у продавцов</li><li>Хранить реальные ПДн из утечек (ИИН/карты/телефоны)</li>
+          <li>Краулить реальные даркнет/наркоплощадки</li><li>Выводы «этот человек — преступник»</li></ul></div>
+      <div class="card" style="border-color:rgba(53,208,127,.4)"><h3 style="color:var(--green)">✓ Можно</h3>
+        <ul><li>Публичный текст/метаданные объявлений</li><li>Публичные abuse-репорты (кошельки)</li>
+          <li>Синтетика для наркотиков/даркнета</li><li>Только маски/хэши реквизитов; вывод — risk scoring</li></ul></div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="slide" data-section="Итог">
+    <div class="center">
+      <div class="kicker">Итог</div>
+      <h1 style="font-size:40px">сбор → сущности → сигналы →<br>скоринг → приоритизация → общий теневой граф</h1>
+      <p class="small" style="max-width:780px;margin:18px auto 0">Digital Shadow переиспользует движок
+      AI Media Watch и связывает находки двух продуктов в одном графе — объяснимая теневая сеть
+      для приоритизации угроз.</p>
+      <div class="badge-row center" style="justify-content:center;margin-top:24px">
+        <span class="tag">326 размеченных кейсов</span><span class="tag">macro-F1 ~0.98</span>
+        <span class="tag">cross-product graph</span><span class="tag">human-in-the-loop</span>
+      </div>
+      <p class="footnote" style="margin-top:20px">Подробно: docs/digital_shadow_architecture.md · docs/two_products.md · docs/shadow_graph_schema.md</p>
+    </div>
+  </section>
+
+</div>
+<div id="counter">01 / 12</div>
+<div class="hint">← → · Space · клик по краям · F — полный экран · O — обзор</div>
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('.slide')];const total=slides.length;let i=0;
+  const counter=document.getElementById('counter'),progress=document.getElementById('progress'),sectionLabel=document.getElementById('sectionLabel');
+  const pad=n=>String(n+1).padStart(2,'0');
+  function render(){slides.forEach((s,k)=>s.classList.toggle('active',k===i));counter.textContent=pad(i)+' / '+String(total).padStart(2,'0');progress.style.width=(i/(total-1)*100)+'%';sectionLabel.textContent=slides[i].dataset.section||'';location.hash=i+1;const a=slides[i];if(a)a.scrollTop=0;}
+  function go(n){i=Math.max(0,Math.min(total-1,n));render();}
+  function next(){go(i+1);}function prev(){go(i-1);}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next();}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev();}
+    else if(e.key==='Home'){go(0);}else if(e.key==='End'){go(total-1);}
+    else if(e.key==='f'||e.key==='F'){toggleFs();}else if(e.key==='o'||e.key==='O'){toggleOverview();}
+    else if(/^[0-9]$/.test(e.key)){const n=parseInt(e.key);if(n>=1)go(n-1);}
+  });
+  document.getElementById('nextZone').addEventListener('click',next);
+  document.getElementById('prevZone').addEventListener('click',prev);
+  function toggleFs(){if(!document.fullscreenElement){document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();}else{document.exitFullscreen&&document.exitFullscreen();}}
+  let overview=false;
+  function toggleOverview(){overview=!overview;const deck=document.getElementById('deck');
+    if(overview){deck.style.cssText='position:absolute;inset:0;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:60px 24px 40px;overflow:auto;align-items:start';
+      slides.forEach((s,k)=>{s.style.cssText='position:relative;opacity:1;transform:scale(1);pointer-events:auto;width:auto;max-height:24vh;overflow:hidden;cursor:pointer;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:9px;background:var(--bg2)';s.onclick=()=>{toggleOverview();go(k);};});}
+    else{deck.style.cssText='';slides.forEach(s=>{s.style.cssText='';s.onclick=null;});render();}}
+  let tx=0;document.addEventListener('touchstart',e=>tx=e.touches[0].clientX,{passive:true});
+  document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50){dx<0?next():prev();}},{passive:true});
+  const fromHash=parseInt((location.hash||'').replace('#',''));if(fromHash>=1&&fromHash<=total)i=fromHash-1;render();
+})();
+</script>
+</body>
+</html>

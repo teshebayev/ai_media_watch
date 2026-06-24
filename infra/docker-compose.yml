@@ -11,10 +11,13 @@
 services:
   vllm:
     image: vllm/vllm-openai:latest
+    profiles: ["gpu"]          # требует GPU+toolkit: docker compose --profile gpu up -d
+    # util=0.5 → vLLM ~12 ГБ из 24, оставляя место deepfake-детектору (CUDA, ~3–5 ГБ)
+    # при полном пайплайне. Свободный GPU → можно поднять: VLLM_GPU_UTIL=0.9.
     command: >
-      --model ${LLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
-      --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}
-      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.90}
+      --model ${LLM_MODEL:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-4096}
+      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.5}
     ports:
       - "${VLLM_HOST_PORT:-8100}:8000"
     volumes:
@@ -63,16 +66,51 @@ services:
       timeout: 5s
       retries: 5
 
+  adminer:                     # веб-UI для Postgres → http://localhost:8081
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on: [postgres]
+    restart: unless-stopped
+
   api:
     build:
       context: ..
       dockerfile: backend/Dockerfile
-    ports:
-      - "8080:8080"
     env_file: ../.env
-    depends_on: [vllm, qdrant, neo4j, postgres]
+    ports:
+      - "${API_HOST_PORT:-8088}:8080"   # хост:8088 → контейнер:8080 (8080 на хосте бывает занят)
+    environment:
+      # внутри docker-сети — по именам сервисов; LLM off по умолчанию (vllm — профиль gpu)
+      QDRANT_URL: http://qdrant:6333
+      NEO4J_URI: bolt://neo4j:7687
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finguard}:${POSTGRES_PASSWORD:-finguard_pass}@postgres:5432/${POSTGRES_DB:-finguard}
+      ENABLE_LLM: "${ENABLE_LLM:-false}"
+      LLM_BASE_URL: http://vllm:8000/v1
+      ENABLE_DEEPFAKE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
     volumes:
       - ../data:/app/data
+
+  frontend:
+    build:
+      # фронт-репо av1cu/ai_media_watch_frontend рядом с проектом (можно переопределить FRONTEND_CONTEXT)
+      context: ${FRONTEND_CONTEXT:-../../ai_media_watch_frontend}
+      args:
+        # адрес backend, который видит БРАУЗЕР (fetch с клиента) — не docker-сеть
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8088}
+    ports:
+      - "3000:3000"
+    depends_on: [api]
+    restart: unless-stopped
 
 volumes:
   hf_cache:

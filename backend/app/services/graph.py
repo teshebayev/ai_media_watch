@@ -11,45 +11,48 @@ from neo4j import AsyncDriver
 from backend.app.config import get_settings
 from backend.app.schemas.models import Entities
 
-UPSERT_VIDEO_DOMAIN = """
-MERGE (v:Video {id: $id})
-MERGE (d:Domain {name: $domain})
-MERGE (v)-[:MENTIONS]->(d)
-"""
+# Источник = узел контента. Лейбл зависит от продукта: Media Watch → Video/Post/Call,
+# Digital Shadow → ShadowItem. Берём из контролируемого списка (НЕ из пользовательского ввода —
+# лейбл нельзя параметризовать в Cypher, поэтому подставляем строкой только из allowlist).
+_SOURCE_LABELS = {"Video", "Post", "Call", "ShadowItem", "Source"}
 
-UPSERT_VIDEO_TELEGRAM = """
-MERGE (v:Video {id: $id})
-MERGE (t:TelegramUsername {name: $tg})
-MERGE (v)-[:MENTIONS]->(t)
-"""
-
-UPSERT_VIDEO_PROMO = """
-MERGE (v:Video {id: $id})
-MERGE (p:PromoCode {code: $code})
-MERGE (v)-[:HAS_PROMO]->(p)
-"""
-
-# Повторяемость домена (главная фича демо). Аналогично для telegram/promo.
-# Повторяемость любой сущности (домен/telegram/промокод) среди источников
-# любого типа (Video/Post/Call), а не только Video.
+# Повторяемость любой сущности среди источников ЛЮБОГО типа (Video/Post/Call/ShadowItem) —
+# так находки Media Watch и Digital Shadow связываются по общим узлам (домен/кошелёк/telegram).
+# Ключи узлов разные: Domain/TelegramUsername.name, PromoCode.code, Wallet.address.
 REUSE_QUERY = """
-MATCH (e) WHERE e.name = $value OR e.code = $value
+MATCH (e) WHERE e.name = $value OR e.code = $value OR e.address = $value
 MATCH (e)<-[]-(s)
 RETURN count(DISTINCT s) AS uses
 """
 
 
-async def upsert_entities(driver: AsyncDriver, record_id: str, entities: Entities) -> None:
+async def upsert_entities(
+    driver: AsyncDriver, record_id: str, entities: Entities, *, source_label: str = "Video"
+) -> None:
+    """Записать сущности записи в Shadow Graph. source_label — тип узла-источника
+    (Media Watch: Video/Post/Call; Digital Shadow: ShadowItem). Кошельки и telegram —
+    общие узлы → кросс-продуктовая связка."""
     s = get_settings()
     if not s.enable_graph:
         return
+    label = source_label if source_label in _SOURCE_LABELS else "Source"
     async with driver.session() as session:
         for domain in entities.domains:
-            await session.run(UPSERT_VIDEO_DOMAIN, id=record_id, domain=domain)
+            await session.run(
+                f"MERGE (s:{label} {{id:$id}}) MERGE (d:Domain {{name:$v}}) "
+                "MERGE (s)-[:MENTIONS]->(d)", id=record_id, v=domain)
         for tg in entities.telegram_usernames:
-            await session.run(UPSERT_VIDEO_TELEGRAM, id=record_id, tg=tg)
+            await session.run(
+                f"MERGE (s:{label} {{id:$id}}) MERGE (t:TelegramUsername {{name:$v}}) "
+                "MERGE (s)-[:MENTIONS]->(t)", id=record_id, v=tg)
         for code in entities.promo_codes:
-            await session.run(UPSERT_VIDEO_PROMO, id=record_id, code=code)
+            await session.run(
+                f"MERGE (s:{label} {{id:$id}}) MERGE (p:PromoCode {{code:$v}}) "
+                "MERGE (s)-[:HAS_PROMO]->(p)", id=record_id, v=code)
+        for wallet in entities.crypto_wallets:
+            await session.run(
+                f"MERGE (s:{label} {{id:$id}}) MERGE (w:Wallet {{address:$v}}) "
+                "MERGE (s)-[:MENTIONS]->(w)", id=record_id, v=wallet)
 
 
 async def entity_reuse(driver: AsyncDriver, value: str) -> int:
@@ -66,7 +69,7 @@ async def entity_reuse(driver: AsyncDriver, value: str) -> int:
 
 # Окрестность сущности: сама сущность ← источники, упоминающие её → их др. сущности.
 NEIGHBORHOOD_QUERY = """
-MATCH (e) WHERE e.name = $value OR e.code = $value
+MATCH (e) WHERE e.name = $value OR e.code = $value OR e.address = $value
 MATCH (e)<-[r1]-(s)
 OPTIONAL MATCH (s)-[r2]->(x) WHERE x <> e
 RETURN e, s, x, r1, r2

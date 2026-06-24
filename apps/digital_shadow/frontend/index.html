@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Shadow — OSINT/DarkNet мониторинг</title>
+<style>
+  :root{
+    --bg:#0b0f17; --bg2:#111726; --panel:#161e30; --line:#243047;
+    --txt:#e6ecf5; --muted:#8da2c0; --accent:#4da3ff; --accent2:#7c5cff;
+    --green:#35d07f; --yellow:#f5c451; --orange:#ff9f43; --red:#ff5d6c;
+    --mono:"SFMono-Regular",Consolas,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:15px;line-height:1.5}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--bg);z-index:10;flex-wrap:wrap}
+  .brand{font-weight:700;letter-spacing:.5px}.brand span{color:var(--accent)}
+  header input{background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
+    padding:7px 10px;font-family:var(--mono);font-size:13px;min-width:240px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);display:inline-block}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+  main{max-width:1100px;margin:0 auto;padding:22px}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .tab{padding:8px 16px;border:1px solid var(--line);border-radius:20px;background:var(--bg2);
+    color:var(--muted);cursor:pointer;font-size:14px}
+  .tab.active{color:var(--txt);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .view{display:none}.view.active{display:block}
+  textarea,select{width:100%;background:var(--bg2);border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:12px;font-family:var(--sans);font-size:14px}
+  textarea{min-height:120px;resize:vertical}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:10px 0}
+  button.go{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;border:none;
+    border-radius:10px;padding:10px 20px;font-weight:600;cursor:pointer;font-size:14px}
+  button.go:disabled{opacity:.5;cursor:wait}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .card h3{font-size:17px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:2px 11px;border-radius:20px;font-family:var(--mono);font-size:12px;font-weight:700}
+  .low{background:rgba(53,208,127,.15);color:var(--green)}
+  .medium{background:rgba(245,196,81,.15);color:var(--yellow)}
+  .high{background:rgba(255,159,67,.15);color:var(--orange)}
+  .critical,.urgent{background:rgba(255,93,108,.15);color:var(--red)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:8px;
+    border:1px solid var(--line);background:var(--bg2);color:var(--muted);margin:3px 4px 0 0}
+  .cat{font-family:var(--mono);color:var(--accent2);font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--accent);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+  td{color:var(--muted)}td b{color:var(--txt)}
+  .muted{color:var(--muted);font-size:13px}.mono{font-family:var(--mono);font-size:12px}
+  #graph{height:460px;border:1px solid var(--line);border-radius:12px;background:#0a0e16;margin-top:10px}
+  .err{color:var(--red);font-size:13px;margin-top:8px}
+  .note{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:10px;margin-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Digital<span>Shadow</span></div>
+  <span class="muted">OSINT / DarkNet мониторинг</span>
+  <span style="flex:1"></span>
+  API: <input id="apiBase" value="http://localhost:8090" spellcheck="false">
+  <span class="dot" id="healthDot" title="статус"></span>
+  <button class="go" style="padding:7px 12px" onclick="checkHealth()">проверить</button>
+</header>
+
+<main>
+  <div class="tabs">
+    <div class="tab active" data-v="analyze">Анализ</div>
+    <div class="tab" data-v="collect">Сбор (мок даркнета)</div>
+    <div class="tab" data-v="queue">Очередь</div>
+    <div class="tab" data-v="watchlist">Watchlist</div>
+    <div class="tab" data-v="actors">Акторы</div>
+    <div class="tab" data-v="findings">Находки</div>
+    <div class="tab" data-v="graph">Теневой граф</div>
+  </div>
+
+  <!-- АНАЛИЗ -->
+  <section class="view active" id="v-analyze">
+    <div class="row">
+      <select id="srcType" style="max-width:220px">
+        <option value="clearweb">clearweb (форум/барахолка)</option>
+        <option value="darknet">darknet (.onion)</option>
+        <option value="paste">paste / leak-форум</option>
+      </select>
+    </div>
+    <textarea id="text" placeholder="Вставьте текст объявления/листинга/поста…
+Пример: Ищем дропов, карта в аренду за %, приём переводов, telegram @x, оплата USDT"></textarea>
+    <div class="row"><button class="go" id="btnAnalyze" onclick="analyze()">Анализировать</button></div>
+    <div id="analyzeOut"></div>
+  </section>
+
+  <!-- СБОР -->
+  <section class="view" id="v-collect">
+    <p class="muted">Прогон синтетических даркнет-листингов (демо). Реальные коллекторы — в дорожной карте.</p>
+    <div class="row"><button class="go" id="btnCollect" onclick="collectMock()">Собрать и проанализировать</button></div>
+    <div id="collectOut"></div>
+  </section>
+
+  <!-- ОЧЕРЕДЬ ТРИАЖА -->
+  <section class="view" id="v-queue">
+    <div class="row">
+      <button class="go" onclick="loadQueue()">Обновить</button>
+      <select id="qStatus" style="max-width:200px" onchange="loadQueue()">
+        <option value="">все статусы</option><option value="new">new</option>
+        <option value="in_review">in_review</option><option value="confirmed">confirmed</option>
+        <option value="dismissed">dismissed</option>
+      </select>
+      <span class="muted">по убыванию threat — подтвердите/отклоните</span>
+    </div>
+    <div id="queueOut"></div>
+  </section>
+
+  <!-- WATCHLIST -->
+  <section class="view" id="v-watchlist">
+    <div class="row">
+      <input id="wlValue" placeholder="кошелёк / домен / @ник" style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
+      <input id="wlNote" placeholder="заметка" style="width:200px;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px">
+      <button class="go" onclick="addWatch()">Добавить</button>
+    </div>
+    <p class="muted">отслеживаемые сущности → сигнал <code>watchlisted</code> (+30) при появлении в находке</p>
+    <div id="watchlistOut"></div>
+  </section>
+
+  <!-- АКТОРЫ -->
+  <section class="view" id="v-actors">
+    <div class="row"><button class="go" onclick="loadActors()">Обновить</button>
+      <label class="muted"><input type="checkbox" id="crossOnly" onchange="loadActors()"> только кросс-продукт (мост Media↔Shadow)</label></div>
+    <div id="actorsOut"></div>
+  </section>
+
+  <!-- НАХОДКИ -->
+  <section class="view" id="v-findings">
+    <div class="row"><button class="go" onclick="loadFindings()">Обновить</button>
+      <span class="muted">последние сохранённые находки (Postgres)</span></div>
+    <div id="findingsOut"></div>
+  </section>
+
+  <!-- ГРАФ -->
+  <section class="view" id="v-graph">
+    <div class="row">
+      <input id="graphEntity" placeholder="сущность (домен/кошелёк/@telegram) — пусто = обзор"
+        style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
+      <button class="go" onclick="loadGraph()">Показать</button>
+    </div>
+    <div id="graph"></div>
+    <div id="graphInfo" class="muted" style="margin-top:8px"></div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const api=()=>$('apiBase').value.replace(/\/$/,'');
+function lvl(x){return (x||'low').toLowerCase()}
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); $('v-'+t.dataset.v).classList.add('active');
+  const v=t.dataset.v;
+  if(v==='queue')loadQueue(); else if(v==='watchlist')loadWatchlist(); else if(v==='actors')loadActors();
+});
+
+async function checkHealth(){
+  try{const r=await fetch(api()+'/shadow/health');const j=await r.json();
+    $('healthDot').className='dot '+(j.graph_connected?'ok':'bad');
+    $('healthDot').title=`graph=${j.graph_connected} db=${j.db_enabled}`;
+  }catch(e){$('healthDot').className='dot bad';$('healthDot').title='нет связи'}
+}
+
+function entRows(e){
+  const f=[['Домены',e.domains],['Кошельки',e.crypto_wallets],['Telegram',e.telegram_usernames],
+    ['Телефоны',e.phones],['Промокоды',e.promo_codes],['URL',e.urls]];
+  return f.filter(([_,v])=>v&&v.length).map(([k,v])=>
+    `<tr><td><b>${k}</b></td><td class="mono">${v.join(', ')}</td></tr>`).join('')||
+    '<tr><td colspan=2 class="muted">сущностей не извлечено</td></tr>';
+}
+function findingCard(f){
+  const sig=(f.signals||[]).map(s=>`<span class="tag">${s}</span>`).join('');
+  const wal=(f.wallet_risks||[]).filter(w=>w.signals&&w.signals.length)
+    .map(w=>`<div class="mono">${w.address} — ${w.type} — ${w.signals.join(', ')}</div>`).join('');
+  return `<div class="card">
+    <h3>${f.id}
+      <span class="pill ${lvl(f.priority)}">${f.priority}</span>
+      <span class="pill ${lvl(f.risk_level)}">${f.risk_level} · ${f.risk_score}</span>
+      <span class="cat">${f.category}</span>
+      <span class="muted">threat ${f.threat_score}</span>
+    </h3>
+    <div>${sig||'<span class="muted">сигналов нет</span>'}</div>
+    <table>${entRows(f.entities||{})}</table>
+    ${wal?`<div class="note">Крипто-риск:<br>${wal}</div>`:''}
+    <div class="note">${f.recommendation||''}</div>
+  </div>`;
+}
+
+async function analyze(){
+  $('btnAnalyze').disabled=true;$('analyzeOut').innerHTML='<p class="muted">анализирую…</p>';
+  try{
+    const r=await fetch(api()+'/shadow/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:'ui_'+Date.now(),source_type:$('srcType').value,text:$('text').value})});
+    if(!r.ok)throw new Error(await r.text());
+    $('analyzeOut').innerHTML=findingCard(await r.json());
+  }catch(e){$('analyzeOut').innerHTML=`<div class="err">${e.message}</div>`}
+  $('btnAnalyze').disabled=false;
+}
+
+async function collectMock(){
+  $('btnCollect').disabled=true;$('collectOut').innerHTML='<p class="muted">собираю…</p>';
+  try{
+    const r=await fetch(api()+'/shadow/collect/mock',{method:'POST'});
+    const j=await r.json();
+    $('collectOut').innerHTML=`<p class="muted">находок: ${j.count} (по убыванию угрозы)</p>`+
+      j.findings.map(findingCard).join('');
+  }catch(e){$('collectOut').innerHTML=`<div class="err">${e.message}</div>`}
+  $('btnCollect').disabled=false;
+}
+
+async function loadFindings(){
+  $('findingsOut').innerHTML='<p class="muted">загрузка…</p>';
+  try{
+    const r=await fetch(api()+'/shadow/sessions');const j=await r.json();
+    const rows=(j.sessions||[]).map(s=>`<tr>
+      <td class="mono">${(s.created_at||'').slice(0,19).replace('T',' ')}</td>
+      <td><span class="pill ${lvl(s.risk_level)}">${s.risk_level}</span></td>
+      <td>${s.risk_score??''}</td>
+      <td class="mono">${s.text_preview||s.source||''}</td></tr>`).join('');
+    $('findingsOut').innerHTML=rows?
+      `<table><tr><th>Время</th><th>Уровень</th><th>Score</th><th>Превью</th></tr>${rows}</table>`:
+      '<p class="muted">пока нет сохранённых находок (или БД выключена)</p>';
+  }catch(e){$('findingsOut').innerHTML=`<div class="err">${e.message}</div>`}
+}
+
+async function loadQueue(){
+  $('queueOut').innerHTML='<p class="muted">загрузка…</p>';
+  try{
+    const st=$('qStatus').value;
+    const j=await (await fetch(api()+'/shadow/queue?limit=50'+(st?'&status='+st:''))).json();
+    const rows=(j.queue||[]).map(f=>`<tr>
+      <td><span class="pill ${lvl(f.priority)}">${f.priority}</span></td>
+      <td class="mono">${f.threat_score}</td>
+      <td><span class="cat">${f.category}</span></td>
+      <td class="mono">${(f.text_preview||'').slice(0,60)}</td>
+      <td>${f.status}</td>
+      <td>${f.status==='new'||f.status==='in_review'?
+        `<button class="go" style="padding:4px 8px" onclick="review('${f.id}','confirm')">✓</button>
+         <button class="go" style="padding:4px 8px;background:var(--line)" onclick="review('${f.id}','dismiss')">✕</button>`:''}</td>
+      </tr>`).join('');
+    $('queueOut').innerHTML=rows?
+      `<table><tr><th>Приоритет</th><th>Threat</th><th>Категория</th><th>Превью</th><th>Статус</th><th></th></tr>${rows}</table>`:
+      '<p class="muted">очередь пуста (или БД выключена)</p>';
+  }catch(e){$('queueOut').innerHTML=`<div class="err">${e.message}</div>`}
+}
+async function review(id,decision){
+  try{await fetch(api()+`/shadow/findings/${id}/review`,{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,reviewer:'analyst'})});
+    loadQueue();}catch(e){alert(e.message)}
+}
+
+async function loadWatchlist(){
+  try{const j=await (await fetch(api()+'/shadow/watchlist')).json();
+    const rows=(j.watchlist||[]).map(w=>`<tr><td class="mono">${w.value}</td><td>${w.kind||''}</td>
+      <td>${w.note||''}</td><td><button class="go" style="padding:4px 8px;background:var(--line)"
+        onclick="delWatch('${w.value.replace(/'/g,"")}')">удалить</button></td></tr>`).join('');
+    $('watchlistOut').innerHTML=rows?
+      `<table><tr><th>Значение</th><th>Тип</th><th>Заметка</th><th></th></tr>${rows}</table>`:
+      '<p class="muted">watchlist пуст</p>';
+  }catch(e){$('watchlistOut').innerHTML=`<div class="err">${e.message}</div>`}
+}
+async function addWatch(){
+  const value=$('wlValue').value.trim();if(!value)return;
+  await fetch(api()+'/shadow/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({value,note:$('wlNote').value||null})});
+  $('wlValue').value='';$('wlNote').value='';loadWatchlist();
+}
+async function delWatch(value){
+  await fetch(api()+'/shadow/watchlist?value='+encodeURIComponent(value),{method:'DELETE'});loadWatchlist();
+}
+
+async function loadActors(){
+  $('actorsOut').innerHTML='<p class="muted">загрузка…</p>';
+  try{
+    const path=$('crossOnly').checked?'/shadow/cross?limit=50':'/shadow/actors?limit=30';
+    const j=await (await fetch(api()+path)).json();
+    const list=j.actors||j.cross||[];
+    const rows=list.map(a=>`<tr>
+      <td>${a.type}</td><td class="mono">${a.entity}</td><td>${a.uses}</td>
+      <td>${a.cross_product?'<span class="pill crit">cross-product</span>':(a.kinds||[]).join(', ')}</td></tr>`).join('');
+    $('actorsOut').innerHTML=rows?
+      `<table><tr><th>Тип</th><th>Сущность</th><th>Повторов</th><th>Источники</th></tr>${rows}</table>`:
+      '<p class="muted">нет данных (граф пуст / выключен)</p>';
+  }catch(e){$('actorsOut').innerHTML=`<div class="err">${e.message}</div>`}
+}
+
+let network;
+async function loadGraph(){
+  $('graphInfo').textContent='загрузка…';
+  try{
+    const q=$('graphEntity').value.trim();
+    const url=api()+'/shadow/graph'+(q?('?value='+encodeURIComponent(q)):'');
+    const g=await (await fetch(url)).json();
+    const nodes=(g.nodes||[]).map(n=>({id:n.id,label:(n.label||n.id),
+      title:`${n.type||''}: ${n.label||n.id}`}));
+    const edges=(g.edges||[]).map(e=>({from:e.from,to:e.to,label:e.label||e.type||'',arrows:'to',font:{size:9,color:'#8da2c0'}}));
+    $('graphInfo').textContent=`узлов: ${nodes.length} · рёбер: ${edges.length}`+(g.note?` · ${g.note}`:'');
+    if(typeof vis==='undefined'){$('graph').innerHTML='<p class="muted" style="padding:14px">vis-network не загрузился (нет сети). Узлов: '+nodes.length+', рёбер: '+edges.length+'</p>';return;}
+    network=new vis.Network($('graph'),{nodes:new vis.DataSet(nodes),edges:new vis.DataSet(edges)},{
+      nodes:{shape:'dot',size:12,color:{background:'#10243e',border:'#4da3ff'},font:{color:'#e6ecf5',size:12}},
+      edges:{color:'#243047'},physics:{stabilization:true}});
+  }catch(e){$('graphInfo').innerHTML=`<span class="err">${e.message}</span>`}
+}
+
+checkHealth();
+</script>
+</body>
+</html>

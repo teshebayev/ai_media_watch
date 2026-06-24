@@ -1,27 +1,33 @@
 # FakeFace FinGuard — план инфраструктуры MVP
 
-Стек: **uv + FastAPI + vLLM + Qdrant + Neo4j + Postgres + Docker Compose**
+Стек: **uv + FastAPI + vLLM + Qdrant + Neo4j + Postgres + Next.js + Docker Compose**
 
-Целевая схема:
+Целевая (= итоговая) схема:
 
 ```text
-Клиент (Streamlit / curl / фронт)
-        │
+Браузер: Next.js-консоль (:3000) / статический фронт / curl
+        │  fetch :8088 (CORS *)
         ▼
-┌─────────────────────────────┐
-│  FastAPI (api)              │  ← оркестратор пайплайна
-│  ├── Media Service          │  Whisper / PaddleOCR
-│  ├── Entity Service         │  regex + LLM
-│  ├── Scenario Service       │  LLM-классификация (vLLM)
-│  ├── Similarity Service     │  Qdrant (поиск похожих scam-примеров)
-│  ├── Graph Service          │  Neo4j (Shadow Graph)
-│  └── Risk Engine            │  скоринг по таблице сигналов
-└──────┬──────┬──────┬────────┘
-       │      │      │
-       ▼      ▼      ▼
-   vLLM    Qdrant   Neo4j
- (LLM API) (вектора) (граф)
+┌──────────────────────────────────────────────┐
+│  FastAPI (api)  — оркестратор пайплайна        │
+│  ├── Ingest        url_fetcher (yt-dlp/httpx)  │
+│  ├── Media         ffmpeg · Whisper · EasyOCR  │
+│  ├── Entity        regex + KazNERD + LLM-добор │
+│  ├── Scenario      LLM-классификация (vLLM)    │
+│  ├── Similarity    Qdrant (scam_cases)         │
+│  ├── Graph         Neo4j (Shadow Graph)        │
+│  ├── Deepfake      внешний venv (ViT+Wav2Vec2) │
+│  ├── OSINT         репутация доменов (+PhishTank)│
+│  ├── Risk Engine   детерминированный скоринг §11│
+│  └── AFM-агент     RAG: Qdrant afm_knowledge + LLM│
+└──┬─────┬─────┬─────┬───────────────────────────┘
+   ▼     ▼     ▼     ▼
+ vLLM  Qdrant Neo4j Postgres        Deepfake (свой venv, subprocess)
+(LLM) (вектора)(граф)(сеансы+ревью)
 ```
+
+Развёртывание — один `docker compose` (`make stack-docker`): qdrant·neo4j·postgres·adminer·api·frontend;
+vLLM — в профиле `gpu`. api-образ слим ~2.3 ГБ (CPU-torch, runtime-only). Подробности — `docs/pipeline.md` и `docs/services.md`.
 
 ---
 
@@ -33,22 +39,31 @@
 |---|---|---|
 | FastAPI каркас (Этап 3) | ✅ | роутеры `/analyze/{text,url,audio,video}`, `/graph/{entity,network}`, `/search`, `/health` + CORS |
 | Risk Engine (Этап 6) | ✅ | детерминированный `src/risk/risk_engine.py` (§11) + regex (§10) + signal_extractor |
-| Qdrant (Этап 4) | ✅ | поднят в Docker, 243 точки; `multilingual-e5` на CPU; `.search`→`query_points` (API 1.12) |
-| Neo4j / Shadow Graph (Этап 5) | ✅ | 243 узла, 540 связей; повторяемость доменов/промокодов; `/graph/network` для виз-графа |
+| Qdrant (Этап 4) | ✅ | поднят в Docker, **834 точки** (`scam_cases`); `multilingual-e5`; `.search`→`query_points` (API 1.12) |
+| Neo4j / Shadow Graph (Этап 5) | ✅ | **834 узла, 875 связей**; повторяемость доменов/промокодов; `/graph/network` для виз-графа |
 | Media ASR (Этап 8.2) | ✅ | faster-whisper на CPU; WER ru 0.29 / kk 0.91 (`docs/asr_kk_findings.md`) |
 | Media OCR (Этап 4) | ✅ | **EasyOCR** вместо PaddleOCR (надёжнее ставится: torch уже есть); кадры + превью видео |
 | TTS (Этап 8.2) | ✅ | **Meta MMS-TTS** (`facebook/mms-tts-rus`/`-kaz`) вместо Silero/KazakhTTS2 — один CPU-стек |
 | KZ NER (Этап 8.4) | ✅ | KazNERD `yeshpanovrustem/xlm-roberta-large-ner-kazakh`, второй проход для kk |
-| Синтетика (Этап 8.1) | ✅ | 160 звонков + 81 пост, self-labeled; единый датасет 243 строки |
-| LLM-слой (Этап 2) | ✅ | vLLM (Qwen2.5-3B) поднят, scenario detection в `/analyze/*` вживую |
-| Deepfake (Этап 8.3) | ⏳ | поля и стаб есть; генерация видео — GPU, Студент 6 |
-| Постоянное хранилище | ✅ | **Postgres** (:5433) + SQLAlchemy async + Alembic; `analysis_sessions` + `analyst_reviews`; `/sessions` `/stats` + фронт-вкладка «История» |
+| Синтетика (Этап 8.1) | ✅ | 160 звонков + 81 пост + **Stop-Piramida 593** (Whisper) + аугментация kk (перевод/LLM/code-switch) → единый датасет **834 строки** |
+| LLM-слой (Этап 2) | ✅ | vLLM (Qwen2.5) поднят, scenario detection в `/analyze/*` вживую |
+| AFM Knowledge Agent | ✅ | RAG поверх Qdrant (`afm_knowledge`): гибридный поиск dense e5 + sparse BM25 (RRF) + ответ vLLM/fallback; `/agent/*` |
+| Классификатор | ✅ | `notebooks/fraud_classifier.ipynb`: TF-IDF/Word2Vec/mBERT/e5 × 5 моделей; лучший e5+LogReg, macro-F1 ≈ 0.82 |
+| Deepfake (Этап 8.3) | ✅ | внешний детектор `external/fakeface-detector` (свой venv, ViT+Wav2Vec2) через subprocess → `media_anomalies` в `/analyze/video`+`url(deep)` |
+| OSINT / репутация | ✅ | `services/osint.py`: тайпсквоттинг KZ-брендов + TLD (+опц. PhishTank) → `phishing_url`/`suspicious_domain` |
+| Постоянное хранилище | ✅ | **Postgres** (:5433) + SQLAlchemy async + Alembic; `analysis_sessions`(+media_anomalies) + `analyst_reviews`; `/sessions` `/stats` |
+| Фронтенд | ✅ | Next.js-консоль (`av1cu/ai_media_watch_frontend`, лендинг+`/console`) + статический `frontend/index.html` |
+| Docker-стек | ✅ | `docker compose up` → infra+api+frontend; **слим api-образ ~2.3 ГБ** (CPU-torch, runtime-only); vLLM в профиле `gpu` |
 
 **Сверх плана добавлено:**
 - **Ingest по ссылке** (`/analyze/url`, `src/ingest/`): YouTube/Instagram/TikTok через yt-dlp
-  (метаданные + субтитры + OCR превью; deep-режим — OCR кадров с guard-ами); HTML/Telegram через httpx.
-- **Статический фронт** `frontend/index.html` (без сборки) + **граф-визуализация** (vis-network, офлайн).
-- Скрипты проверки: `scripts/itest_services.py`, `scripts/itest_http.py`, `scripts/run_demo.sh`.
+  (метаданные + субтитры + OCR превью; deep-режим — OCR кадров + deepfake с guard-ами); HTML/Telegram через httpx.
+- **OSINT/репутация** (`services/osint.py`) и **deepfake-детектор** (`services/deepfake.py` → внешний venv).
+- **AFM Knowledge Agent** (`services/knowledge.py`, `/agent/*`): RAG-Q&A по базе АФМ, гибридный поиск (dense e5 + sparse BM25, серверный RRF в Qdrant) + ответ vLLM/fallback; на фронте — вкладка «AFM-агент».
+- **Next.js-фронт** (`av1cu/ai_media_watch_frontend`) + статический `frontend/index.html` (vis-network граф, История).
+- **Классификатор** `notebooks/fraud_classifier.ipynb` (TF-IDF/Word2Vec/mBERT/e5 × 5 моделей).
+- **Один docker-стек** (`make stack-docker`) со слим api-образом; запуск на хосте — `make stack` / `scripts/run_fullstack.sh`.
+- Скрипты проверки: `scripts/itest_services.py`, `scripts/itest_http.py`.
 
 Подробный чек-лист и команды — [`finguard_work_plan.md`](finguard_work_plan.md).
 
@@ -65,8 +80,8 @@ uv init finguard --python 3.12
 cd finguard
 uv add fastapi "uvicorn[standard]" pydantic-settings httpx
 uv add qdrant-client neo4j openai          # openai-клиент → vLLM (OpenAI-compatible)
-uv add faster-whisper paddleocr paddlepaddle
-uv add python-multipart yt-dlp aiosqlite
+uv add faster-whisper easyocr sentence-transformers
+uv add python-multipart yt-dlp sqlalchemy asyncpg alembic
 uv add --dev pytest ruff
 ```
 
@@ -79,14 +94,16 @@ uv add --dev pytest ruff
 ```text
 ai_media_watch/
 ├── pyproject.toml · uv.lock · .env.example · Makefile · alembic.ini
-├── infra/docker-compose.yml
-├── backend/app/
-│   ├── main.py · config.py
-│   ├── api/        # analyze (text/url/audio/video), graph, search, sessions, health
-│   ├── services/   # media, entities, scenario, similarity, graph, risk, pipeline, ingest, sessions
-│   ├── clients/    # qdrant.py, neo4j.py, llm.py, db.py (DI)
-│   ├── db/         # SQLAlchemy-модели + Alembic-миграции (Postgres)
-│   └── schemas/    # Pydantic-модели + enums (единый JSONL-формат §5)
+├── infra/docker-compose.yml          # qdrant·neo4j·postgres·api·frontend (+vllm profile gpu)
+├── backend/
+│   ├── Dockerfile · requirements-runtime.txt   # слим-образ: CPU-torch + runtime-only
+│   └── app/
+│       ├── main.py · config.py
+│       ├── api/        # analyze (text/url/audio/video), graph, search, sessions, health
+│       ├── services/   # media, entities, scenario, similarity, graph, risk, pipeline, ingest, deepfake, osint, sessions
+│       ├── clients/    # qdrant.py, neo4j.py, llm.py, db.py (DI)
+│       ├── db/         # SQLAlchemy-модели + Alembic-миграции (Postgres)
+│       └── schemas/    # Pydantic-модели + enums (единый JSONL-формат §5)
 ├── src/
 │   ├── extraction/ # regex_extractors, signal_extractor, kaznerd_ner
 │   ├── media/      # asr_whisper, ocr (EasyOCR), ocr_paddle (альт.), asr_check, fakeface_*
@@ -98,18 +115,25 @@ ai_media_watch/
 │   ├── index_dataset.py · build_dataset.py
 │   └── app/        # streamlit_app.py (альт. UI)
 ├── frontend/       # index.html (статика) + vendor/vis-network.min.js
-├── scripts/        # run_demo.sh, itest_services.py, itest_http.py
+├── external/       # fakeface-detector (свой venv, deepfake) — gitignored
+├── scripts/        # run_fullstack.sh, run_demo.sh, run_vllm.sh, itest_*, process_stop_piramida.py
 ├── presentation/   # index.html (слайды архитектуры)
-├── docs/           # гайды + asr_kk_findings.md
+├── notebooks/      # fraud_classifier.ipynb (классификатор)
+├── docs/           # pipeline.md, asr_kk_findings.md, гайды
 ├── tests/          # test_risk_engine, test_regex_extractors
 └── data/{raw,processed}/
+# рядом (отдельный репо): ~/ai_media_watch_frontend — Next.js-консоль
 ```
 
 ---
 
 ## Этап 1. Docker Compose — поднять всю инфраструктуру (1–1.5 ч)
 
-`infra/docker-compose.yml`:
+> ℹ️ Ниже — исходный план. **Итоговый** `infra/docker-compose.yml` отличается: добавлены
+> `postgres`, `adminer`, `frontend`; `vllm` вынесен в профиль `gpu`; api наружу на `:8088→8080`;
+> api-образ слим (CPU-torch). Актуальную схему см. в `docs/pipeline.md` / `docs/services.md`.
+
+`infra/docker-compose.yml` (план):
 
 ```yaml
 services:
@@ -329,9 +353,9 @@ RETURN d.name, uses ORDER BY uses DESC
 
 ## Этап 7. Сборка демо (2 ч)
 
-1. Streamlit (Студент 8) ходит в FastAPI: upload → progress → отчёт + скрин графа.
+1. Next.js-консоль (Студент 8, репо `av1cu/ai_media_watch_frontend`) ходит в FastAPI: анализ → отчёт + граф + История/Статистика + AFM-агент. Запасной — статический `frontend/index.html`.
 2. Прогнать три демо-сценария из ТЗ §18: gambling-видео, eGov-звонок, deepfake promo.
-3. `make demo` / `docker compose up` — одна команда поднимает всё.
+3. `make stack-docker` — одна команда поднимает весь стек (инфра+api+фронт; vLLM — профиль `gpu`).
 4. `.env.example` + README с командами запуска.
 
 ---
@@ -422,8 +446,8 @@ Talking head: SadTalker / Wav2Lip / LivePortrait  →  .mp4   (possible_deepfake
 |---|---|
 | Нет GPU для vLLM | Меньшая модель (1.5B) или Ollama; клиентский код не меняется |
 | Whisper медленный | faster-whisper `small`, int8; для демо — заранее посчитанные транскрипты |
-| PaddleOCR тяжело ставится | Прогнать OCR заранее скриптом, в демо отдавать из кэша |
+| OCR тяжело ставится | Используем EasyOCR (ставится с torch); можно прогнать OCR заранее и отдавать из кэша |
 | Не успели Qdrant | Сигнал similarity выключается флагом, скоринг работает |
-| Не успели Neo4j | Граф рисуется из CSV в Streamlit (networkx/pyvis) |
+| Не успели Neo4j | Граф рисуется из CSV / статического фронта (vis-network) |
 | KazakhTTS2/talking-head тяжело ставить | Текстовый слой (`gen_call_scripts.py`) + ru Silero на CPU; deepfake-видео берём из готовых FaceForensics++/DFDC/FakeAVCeleb |
 | Whisper плохо тянет kk | Замерить WER на KSC2/Soyle; адаптер в `services/media.py` переключает kk-аудио на Soyle |

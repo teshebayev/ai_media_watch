@@ -6,9 +6,10 @@ CREATE CONSTRAINT IF NOT EXISTS FOR (p:PromoCode)        REQUIRE p.code    IS UN
 CREATE CONSTRAINT IF NOT EXISTS FOR (w:Wallet)           REQUIRE w.address IS UNIQUE;
 
 // Типы узлов (ТЗ §12.1):
-// (:Video) (:Post) (:Call) (:Account) (:Blogger) (:TelegramUsername)
-// (:PhoneHash) (:Wallet) (:URL) (:Domain) (:PromoCode) (:Organization)
-// (:RiskSignal) (:DatasetSource)
+// Источники: (:Video) (:Post) (:Call) — AI Media Watch; (:ShadowItem) — Digital Shadow.
+// Общие сущности (мост между продуктами): (:Domain) (:TelegramUsername) (:PromoCode) (:Wallet).
+// Прочее: (:Account) (:Blogger) (:PhoneHash) (:URL) (:Organization) (:RiskSignal) (:DatasetSource)
+// Полный контракт схемы — docs/shadow_graph_schema.md.
 
 // Типы связей (ТЗ §12.2):
 // (:Blogger)-[:PUBLISHED]->(:Video)

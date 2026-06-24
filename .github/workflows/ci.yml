@@ -1,0 +1,31 @@
+name: CI
+
+# Контракт общего движка: на каждый push/PR гоняем lint + тесты, которые покрывают
+# core И оба продукта (media_watch, digital_shadow). Если PR одной команды ломает core —
+# падают тесты второй. Тесты чистые: без GPU/сети/БД (интеграционные — отдельно, вручную).
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install deps
+        run: uv sync --frozen || uv sync
+
+      - name: Ruff (lint — общий движок и продукты)
+        run: uv run ruff check core apps tests
+
+      - name: Pytest (contract + unit)
+        run: uv run pytest -q
