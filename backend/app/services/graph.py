@@ -6,10 +6,15 @@ MERGE узлов/связей после entity extraction + запрос пов
 
 from __future__ import annotations
 
+import logging
+
 from neo4j import AsyncDriver
 
 from backend.app.config import get_settings
 from backend.app.schemas.models import Entities
+from backend.app.services.entity_norm import normalize_entity_value, normalized_variants
+
+logger = logging.getLogger(__name__)
 
 # Источник = узел контента. Лейбл зависит от продукта: Media Watch → Video/Post/Call,
 # Digital Shadow → ShadowItem. Берём из контролируемого списка (НЕ из пользовательского ввода —
@@ -19,8 +24,9 @@ _SOURCE_LABELS = {"Video", "Post", "Call", "ShadowItem", "Source"}
 # Повторяемость любой сущности среди источников ЛЮБОГО типа (Video/Post/Call/ShadowItem) —
 # так находки Media Watch и Digital Shadow связываются по общим узлам (домен/кошелёк/telegram).
 # Ключи узлов разные: Domain/TelegramUsername.name, PromoCode.code, Wallet.address.
+# Значение нормализуется (entity_norm) → ищем по каноническим формам ($values).
 REUSE_QUERY = """
-MATCH (e) WHERE e.name = $value OR e.code = $value OR e.address = $value
+MATCH (e) WHERE e.name IN $values OR e.code IN $values OR e.address IN $values
 MATCH (e)<-[]-(s)
 RETURN count(DISTINCT s) AS uses
 """
@@ -40,27 +46,37 @@ async def upsert_entities(
         for domain in entities.domains:
             await session.run(
                 f"MERGE (s:{label} {{id:$id}}) MERGE (d:Domain {{name:$v}}) "
-                "MERGE (s)-[:MENTIONS]->(d)", id=record_id, v=domain)
+                "MERGE (s)-[:MENTIONS]->(d)",
+                id=record_id, v=normalize_entity_value("domain", domain))
         for tg in entities.telegram_usernames:
             await session.run(
                 f"MERGE (s:{label} {{id:$id}}) MERGE (t:TelegramUsername {{name:$v}}) "
-                "MERGE (s)-[:MENTIONS]->(t)", id=record_id, v=tg)
+                "MERGE (s)-[:MENTIONS]->(t)",
+                id=record_id, v=normalize_entity_value("telegram", tg))
         for code in entities.promo_codes:
             await session.run(
                 f"MERGE (s:{label} {{id:$id}}) MERGE (p:PromoCode {{code:$v}}) "
-                "MERGE (s)-[:HAS_PROMO]->(p)", id=record_id, v=code)
+                "MERGE (s)-[:HAS_PROMO]->(p)",
+                id=record_id, v=normalize_entity_value("promo", code))
         for wallet in entities.crypto_wallets:
             await session.run(
                 f"MERGE (s:{label} {{id:$id}}) MERGE (w:Wallet {{address:$v}}) "
-                "MERGE (s)-[:MENTIONS]->(w)", id=record_id, v=wallet)
+                "MERGE (s)-[:MENTIONS]->(w)",
+                id=record_id, v=normalize_entity_value("wallet", wallet))
 
 
-async def entity_reuse(driver: AsyncDriver, value: str) -> int:
+def _reuse_values(value: str, kind: str | None) -> list[str]:
+    """Канонические формы значения для поиска узла. С известным kind — одна форма,
+    иначе — все варианты (kind-агностично)."""
+    return [normalize_entity_value(kind, value)] if kind else normalized_variants(value)
+
+
+async def entity_reuse(driver: AsyncDriver, value: str, *, kind: str | None = None) -> int:
     s = get_settings()
     if not s.enable_graph:
         return 0
     async with driver.session() as session:
-        result = await session.run(REUSE_QUERY, value=value)
+        result = await session.run(REUSE_QUERY, values=_reuse_values(value, kind))
         record = await result.single()
         return record["uses"] if record else 0
 
@@ -68,8 +84,9 @@ async def entity_reuse(driver: AsyncDriver, value: str) -> int:
 # --- Визуализация: подграф nodes/edges -------------------------------------
 
 # Окрестность сущности: сама сущность ← источники, упоминающие её → их др. сущности.
+# Значение нормализуется (entity_norm) → ищем по каноническим формам ($values).
 NEIGHBORHOOD_QUERY = """
-MATCH (e) WHERE e.name = $value OR e.code = $value OR e.address = $value
+MATCH (e) WHERE e.name IN $values OR e.code IN $values OR e.address IN $values
 MATCH (e)<-[r1]-(s)
 OPTIONAL MATCH (s)-[r2]->(x) WHERE x <> e
 RETURN e, s, x, r1, r2
@@ -140,7 +157,8 @@ async def neighborhood(driver: AsyncDriver, value: str, limit: int = 150) -> dic
     if not s.enable_graph:
         return {"nodes": [], "edges": []}
     async with driver.session() as session:
-        result = await session.run(NEIGHBORHOOD_QUERY, value=value, limit=limit)
+        result = await session.run(
+            NEIGHBORHOOD_QUERY, values=normalized_variants(value), limit=limit)
         records = [r async for r in result]
     return _collect(records)
 

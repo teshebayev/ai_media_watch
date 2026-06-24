@@ -56,3 +56,29 @@ def test_graph_supports_wallet_reuse():
     assert "e.address" in core.graph_service.REUSE_QUERY
     assert "e.address" in core.graph_service.NEIGHBORHOOD_QUERY
     assert "ShadowItem" in core.graph_service._SOURCE_LABELS
+
+
+def test_entity_normalization_merges_nodes():
+    """Каноникализация: одна сущность из Media и Shadow → ОДИН узел графа.
+    @Work_Fast == @work_fast, www.site.kz/ == site.kz, промокод регистронезависим.
+    """
+    n = core.normalize_entity_value
+    # telegram: регистр и ведущий @ не должны плодить дубли
+    assert n("telegram", "@Work_Fast") == n("telegram", "@work_fast") == "work_fast"
+    assert n("telegram_usernames", "@Work_Fast") == "work_fast"  # алиас имени поля
+    # domain: схема/www/порт/путь/запрос срезаются → только хост (один узел)
+    assert n("domain", "www.Site.kz/") == n("domain", "https://site.kz") == "site.kz"
+    assert n("domain", "https://www.site.kz/promo?ref=1") == "site.kz"
+    assert n("domain", "site.kz:443") == "site.kz"
+    # promo — в верхний регистр; wallet — регистр СОХРАНЯЕТСЯ (адреса регистрозависимы)
+    assert n("promo", "win5000") == "WIN5000"
+    addr = "bc1QXY2KGdygjrsqtzq2n0"
+    assert n("wallet", addr) == addr
+    # variants содержат каноническую форму → REUSE найдёт узел без знания kind
+    assert "work_fast" in core.normalized_variants("@Work_Fast")
+
+
+def test_reuse_query_uses_normalized_values():
+    """entity_reuse ищет по списку канонических форм ($values), а не по сырому значению."""
+    assert "$values" in core.graph_service.REUSE_QUERY
+    assert "$values" in core.graph_service.NEIGHBORHOOD_QUERY

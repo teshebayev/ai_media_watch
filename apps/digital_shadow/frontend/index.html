@@ -142,9 +142,11 @@
       <input id="graphEntity" placeholder="сущность (домен/кошелёк/@telegram) — пусто = обзор"
         style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
       <button class="go" onclick="loadGraph()">Показать</button>
+      <button class="go" onclick="loadClusters()" title="Связные компоненты по со-упоминанию">Кластеры</button>
     </div>
     <div id="graph"></div>
     <div id="graphInfo" class="muted" style="margin-top:8px"></div>
+    <div id="clusters" style="margin-top:10px"></div>
   </section>
 </main>
 
@@ -308,6 +310,22 @@ async function loadGraph(){
       nodes:{shape:'dot',size:12,color:{background:'#10243e',border:'#4da3ff'},font:{color:'#e6ecf5',size:12}},
       edges:{color:'#243047'},physics:{stabilization:true}});
   }catch(e){$('graphInfo').innerHTML=`<span class="err">${e.message}</span>`}
+}
+
+async function loadClusters(){
+  $('clusters').textContent='загрузка…';
+  try{
+    const j=await (await fetch(api()+'/shadow/clusters')).json();
+    const cl=j.clusters||[];
+    if(!cl.length){$('clusters').innerHTML='<p class="muted">кластеров нет (нужны сущности с повторяемостью ≥2)</p>';return;}
+    $('clusters').innerHTML=cl.map(c=>{
+      const bridge=c.cross_product?'<span style="color:#ffb454">🔗 мост Media↔Shadow</span>':'';
+      const ents=c.entities.map(e=>`<code>${e.value}</code> <span class="muted">(${e.type})</span>`).join(', ');
+      return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div><b>${c.size}</b> сущ · <b>${c.sources}</b> источ · ${c.kinds.join(', ')} ${bridge}</div>
+        <div style="margin-top:6px;font-size:13px">${ents}</div></div>`;
+    }).join('');
+  }catch(e){$('clusters').innerHTML=`<span class="err">${e.message}</span>`}
 }
 
 checkHealth();

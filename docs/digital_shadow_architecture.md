@@ -193,6 +193,7 @@ flowchart LR
 | `POST /shadow/findings/{id}/review` | решение аналитика (confirm/dismiss/in_review) |
 | `GET·POST·DELETE /shadow/watchlist` | отслеживаемые сущности → сигнал `watchlisted` |
 | `GET /shadow/actors` · `GET /shadow/cross` | топ повторяющихся сущностей · кросс-продуктовые |
+| `GET /shadow/clusters` | кластеры связанных акторов (связные компоненты по со-упоминанию) |
 | `GET /shadow/graph` | теневой граф (общий Neo4j) |
 | `GET /shadow/sessions` | находки из Postgres (фильтры category/priority) |
 | `GET /shadow/health` | статус (граф/БД) |
@@ -201,7 +202,11 @@ flowchart LR
 таблица `shadow_reviews` хранит решения; очередь сортируется по `threat_score`.
 **Watchlist:** `shadow_watchlist` (кошельки/домены/@ник); совпадение в находке → сигнал
 `watchlisted` (+30) и рост приоритета. **Акторы:** агрегация графа — топ сущностей по повторяемости,
-с флагом `cross_product` (мост Media↔Shadow). Фронт `:8091` — вкладки Очередь · Watchlist · Акторы.
+с флагом `cross_product` (мост Media↔Shadow). **Кластеры** (`/shadow/clusters`): связные
+компоненты по со-упоминанию (union-find над двудольными рёбрами «сущность ← источник») —
+видна структура сети, кросс-продуктовые кластеры наверху. Все ключи сущностей канонизируются
+(`core.normalize_entity_value`, см. [shadow_graph_schema.md](shadow_graph_schema.md)), чтобы одна
+сущность из Media и Shadow была одним узлом. Фронт `:8091` — вкладки Очередь · Watchlist · Акторы.
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d qdrant neo4j postgres

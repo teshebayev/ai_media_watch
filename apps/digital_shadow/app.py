@@ -14,6 +14,7 @@ upsert в общий граф + повторяемость → персист в
   GET  /shadow/health           — статус + подключён ли граф/БД
   POST /shadow/analyze          — анализ одного элемента (ShadowItem) → ShadowFinding (+граф +БД)
   POST /shadow/collect/mock     — синтетические даркнет-листинги → находки (демо, по убыв. угрозы)
+  GET  /shadow/clusters         — кластеры связанных акторов (мосты Media↔Shadow)
   GET  /shadow/graph            — обзор теневого графа (общий Neo4j) для визуализации
   GET  /shadow/sessions         — последние сохранённые находки (из Postgres)
 """
@@ -27,7 +28,7 @@ from contextlib import asynccontextmanager
 # Корень репозитория импортируемым (как в backend.main) — чтобы работали core/backend/src.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
@@ -167,6 +168,20 @@ async def actors(limit: int = 20, min_uses: int = 2) -> dict:
 async def cross(limit: int = 50) -> dict:
     """Только кросс-продуктовые сущности: связывают контент (Media) и теневые источники (Shadow)."""
     return {"cross": await actors_svc.cross_product(getattr(app.state, "neo4j", None), limit=limit)}
+
+
+@app.get("/shadow/clusters")
+async def clusters(
+    min_uses: int = Query(2, ge=1, le=100),
+    limit: int = Query(500, ge=1, le=5000),
+    max_clusters: int = Query(50, ge=1, le=500),
+) -> dict:
+    """Кластеры связанных акторов (связные компоненты по со-упоминанию).
+    cross_product=True — кластер связывает контент (Media) и теневые источники (Shadow)."""
+    cl = await actors_svc.actor_clusters(
+        getattr(app.state, "neo4j", None),
+        min_uses=min_uses, limit=limit, max_clusters=max_clusters)
+    return {"clusters": cl, "count": len(cl)}
 
 
 @app.get("/shadow/graph")

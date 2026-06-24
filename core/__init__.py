@@ -42,6 +42,10 @@ from backend.app.services import similarity as similarity_service
 
 # ── Извлечение сущностей и сигналов ──────────────────────────────────────────
 from backend.app.services.entities import extract_regex_entities
+from backend.app.services.entity_norm import (
+    normalize_entity_value,
+    normalized_variants,
+)
 from src.extraction.regex_extractors import (
     extract_crypto_wallets,
     extract_domains,
@@ -70,6 +74,7 @@ __all__ = [
     "SIGNAL_WEIGHTS", "evaluate", "risk_level", "score_signals", "signal_weight",
     "extract_regex_entities", "extract_crypto_wallets", "extract_domains",
     "extract_urls", "hash_value", "mask_phone",
+    "normalize_entity_value", "normalized_variants",
     "extract_signals", "signals_from_entities", "signals_from_text",
     "graph_service", "osint_service", "similarity_service",
 ]
