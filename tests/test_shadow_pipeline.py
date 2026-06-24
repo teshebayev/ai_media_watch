@@ -43,6 +43,28 @@ def test_lexicon_word_boundaries():
     assert "contraband_vape" not in cats2
 
 
+def test_obfuscation_normalization():
+    """Фаза 3: разрядка/гомоглифы ловятся; word-boundary регресс не ломается."""
+    # разрядка: «к л а д» → drug_slang
+    s1, _ = taxonomy.detect_lexicon_signals("Продаю к л а д по городу, USDT")
+    assert "drug_slang" in s1
+    # гомоглиф: латинская k в «kлад»
+    s2, _ = taxonomy.detect_lexicon_signals("товар kлад в наличии")
+    assert "drug_slang" in s2
+    # гомоглиф латинская v в «vейп оптом» → контрабанда
+    _, c3 = taxonomy.detect_lexicon_signals("vейп оптом, без акциз")
+    assert "contraband_vape" in c3
+    # РЕГРЕСС: «оклад» по-прежнему НЕ наркотик после нормализации
+    s4, _ = taxonomy.detect_lexicon_signals("оклад плюс премия в офисе")
+    assert "drug_slang" not in s4
+
+
+def test_normalize_text_pure():
+    assert taxonomy.normalize_text("к л а д") == "клад"
+    assert taxonomy.normalize_text("kлад") == "клад"
+    assert taxonomy.normalize_text("клааад") == "клад"
+
+
 def test_watchlist_signal():
     txt = "Перевод на кошелёк bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"
     item = ShadowItem(id="w", source_type="paste", text=txt)

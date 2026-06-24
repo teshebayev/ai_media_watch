@@ -155,6 +155,9 @@
 const $=id=>document.getElementById(id);
 const api=()=>$('apiBase').value.replace(/\/$/,'');
 function lvl(x){return (x||'low').toLowerCase()}
+// XSS-защита: текст находок приходит из недоверенных листингов → экранируем перед innerHTML.
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>(
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -175,21 +178,23 @@ function entRows(e){
   const f=[['Домены',e.domains],['Кошельки',e.crypto_wallets],['Telegram',e.telegram_usernames],
     ['Телефоны',e.phones],['Промокоды',e.promo_codes],['URL',e.urls]];
   return f.filter(([_,v])=>v&&v.length).map(([k,v])=>
-    `<tr><td><b>${k}</b></td><td class="mono">${v.join(', ')}</td></tr>`).join('')||
+    `<tr><td><b>${k}</b></td><td class="mono">${esc(v.join(', '))}</td></tr>`).join('')||
     '<tr><td colspan=2 class="muted">сущностей не извлечено</td></tr>';
 }
 function findingCard(f){
-  const sig=(f.signals||[]).map(s=>`<span class="tag">${s}</span>`).join('');
+  const sig=(f.signals||[]).map(s=>`<span class="tag">${esc(s)}</span>`).join('');
   const wal=(f.wallet_risks||[]).filter(w=>w.signals&&w.signals.length)
-    .map(w=>`<div class="mono">${w.address} — ${w.type} — ${w.signals.join(', ')}</div>`).join('');
+    .map(w=>`<div class="mono">${esc(w.address)} — ${esc(w.type)} — ${esc(w.signals.join(', '))}</div>`).join('');
+  const ev=(f.evidence||[]).map(e=>`<li>${esc(e)}</li>`).join('');
   return `<div class="card">
-    <h3>${f.id}
+    <h3>${esc(f.id)}
       <span class="pill ${lvl(f.priority)}">${f.priority}</span>
       <span class="pill ${lvl(f.risk_level)}">${f.risk_level} · ${f.risk_score}</span>
-      <span class="cat">${f.category}</span>
+      <span class="cat">${esc(f.category)}</span>
       <span class="muted">threat ${f.threat_score}</span>
     </h3>
     <div>${sig||'<span class="muted">сигналов нет</span>'}</div>
+    ${ev?`<div class="note">Почему (evidence):<ul style="margin:4px 0 0 16px">${ev}</ul></div>`:''}
     <table>${entRows(f.entities||{})}</table>
     ${wal?`<div class="note">Крипто-риск:<br>${wal}</div>`:''}
     <div class="note">${f.recommendation||''}</div>
@@ -226,7 +231,7 @@ async function loadFindings(){
       <td class="mono">${(s.created_at||'').slice(0,19).replace('T',' ')}</td>
       <td><span class="pill ${lvl(s.risk_level)}">${s.risk_level}</span></td>
       <td>${s.risk_score??''}</td>
-      <td class="mono">${s.text_preview||s.source||''}</td></tr>`).join('');
+      <td class="mono">${esc(s.text_preview||s.source||'')}</td></tr>`).join('');
     $('findingsOut').innerHTML=rows?
       `<table><tr><th>Время</th><th>Уровень</th><th>Score</th><th>Превью</th></tr>${rows}</table>`:
       '<p class="muted">пока нет сохранённых находок (или БД выключена)</p>';
@@ -241,9 +246,9 @@ async function loadQueue(){
     const rows=(j.queue||[]).map(f=>`<tr>
       <td><span class="pill ${lvl(f.priority)}">${f.priority}</span></td>
       <td class="mono">${f.threat_score}</td>
-      <td><span class="cat">${f.category}</span></td>
-      <td class="mono">${(f.text_preview||'').slice(0,60)}</td>
-      <td>${f.status}</td>
+      <td><span class="cat">${esc(f.category)}</span></td>
+      <td class="mono">${esc((f.text_preview||'').slice(0,60))}</td>
+      <td>${esc(f.status)}</td>
       <td>${f.status==='new'||f.status==='in_review'?
         `<button class="go" style="padding:4px 8px" onclick="review('${f.id}','confirm')">✓</button>
          <button class="go" style="padding:4px 8px;background:var(--line)" onclick="review('${f.id}','dismiss')">✕</button>`:''}</td>
@@ -261,8 +266,8 @@ async function review(id,decision){
 
 async function loadWatchlist(){
   try{const j=await (await fetch(api()+'/shadow/watchlist')).json();
-    const rows=(j.watchlist||[]).map(w=>`<tr><td class="mono">${w.value}</td><td>${w.kind||''}</td>
-      <td>${w.note||''}</td><td><button class="go" style="padding:4px 8px;background:var(--line)"
+    const rows=(j.watchlist||[]).map(w=>`<tr><td class="mono">${esc(w.value)}</td><td>${esc(w.kind||'')}</td>
+      <td>${esc(w.note||'')}</td><td><button class="go" style="padding:4px 8px;background:var(--line)"
         onclick="delWatch('${w.value.replace(/'/g,"")}')">удалить</button></td></tr>`).join('');
     $('watchlistOut').innerHTML=rows?
       `<table><tr><th>Значение</th><th>Тип</th><th>Заметка</th><th></th></tr>${rows}</table>`:
@@ -286,8 +291,8 @@ async function loadActors(){
     const j=await (await fetch(api()+path)).json();
     const list=j.actors||j.cross||[];
     const rows=list.map(a=>`<tr>
-      <td>${a.type}</td><td class="mono">${a.entity}</td><td>${a.uses}</td>
-      <td>${a.cross_product?'<span class="pill crit">cross-product</span>':(a.kinds||[]).join(', ')}</td></tr>`).join('');
+      <td>${esc(a.type)}</td><td class="mono">${esc(a.entity)}</td><td>${a.uses}</td>
+      <td>${a.cross_product?'<span class="pill crit">cross-product</span>':esc((a.kinds||[]).join(', '))}</td></tr>`).join('');
     $('actorsOut').innerHTML=rows?
       `<table><tr><th>Тип</th><th>Сущность</th><th>Повторов</th><th>Источники</th></tr>${rows}</table>`:
       '<p class="muted">нет данных (граф пуст / выключен)</p>';
@@ -320,7 +325,7 @@ async function loadClusters(){
     if(!cl.length){$('clusters').innerHTML='<p class="muted">кластеров нет (нужны сущности с повторяемостью ≥2)</p>';return;}
     $('clusters').innerHTML=cl.map(c=>{
       const bridge=c.cross_product?'<span style="color:#ffb454">🔗 мост Media↔Shadow</span>':'';
-      const ents=c.entities.map(e=>`<code>${e.value}</code> <span class="muted">(${e.type})</span>`).join(', ');
+      const ents=c.entities.map(e=>`<code>${esc(e.value)}</code> <span class="muted">(${esc(e.type)})</span>`).join(', ');
       return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--bg2)">
         <div><b>${c.size}</b> сущ · <b>${c.sources}</b> источ · ${c.kinds.join(', ')} ${bridge}</div>
         <div style="margin-top:6px;font-size:13px">${ents}</div></div>`;

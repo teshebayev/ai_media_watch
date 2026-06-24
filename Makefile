@@ -1,4 +1,4 @@
-.PHONY: install lock up down logs api test lint index index-kb ask demo stack stack-llm stack-docker media shadow shadow-front shadow-seed shadow-eval shadow-gen shadow-collect shadow-train
+.PHONY: install lock up down logs api test lint index index-kb ask demo stack stack-llm stack-docker media shadow shadow-front shadow-seed shadow-eval shadow-gen shadow-collect shadow-train shadow-index
 
 # --- Локальная разработка (uv) ---
 install:           ## Установить зависимости из lock
@@ -87,6 +87,10 @@ shadow-collect:    ## Сбор источника → пайплайн → гр�
 shadow-train:      ## Обучить ML-классификатор категорий (DATA=path, по умолч. all.jsonl)
 	PYTHONPATH=. CUDA_VISIBLE_DEVICES="" uv run python -m apps.digital_shadow.train_classifier \
 	  --data $(or $(DATA),data/shadow/all.jsonl)
+
+shadow-index:      ## Проиндексировать листинги в Qdrant (семантическое сходство, DATA=path)
+	PYTHONPATH=. CUDA_VISIBLE_DEVICES="" QDRANT_URL=http://localhost:6333 \
+	  uv run python -m apps.digital_shadow.index_listings --data $(or $(DATA),data/shadow/all.jsonl)
 
 # Бэкенд для фронта без GPU: LLM выключен, Qdrant+Neo4j на localhost.
 api-cpu:           ## FastAPI на CPU (LLM off, similarity+graph on)

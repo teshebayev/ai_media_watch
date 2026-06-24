@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 
-from apps.digital_shadow import crypto_risk, leak_detector, taxonomy
+from apps.digital_shadow import crypto_risk, leak_detector, similarity, taxonomy
 from apps.digital_shadow.prioritization import prioritize, shadow_score
 from apps.digital_shadow.schemas import ShadowFinding, ShadowItem
 from core import (
@@ -30,10 +30,11 @@ _REUSE_FIELDS = ("domains", "crypto_wallets", "telegram_usernames", "promo_codes
 
 
 async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | None = None,
-                       bad_entities: set[str] | None = None) -> ShadowFinding:
+                       bad_entities: set[str] | None = None, qdrant=None) -> ShadowFinding:
     """Проанализировать один элемент. driver (Neo4j AsyncDriver) — опц.: upsert + reuse.
     watchlist — отслеживаемые значения (совпадение → watchlisted).
-    bad_entities — индикаторы с подтверждённым abuse (репутация → known_bad_entity)."""
+    bad_entities — индикаторы с подтверждённым abuse (репутация → known_bad_entity).
+    qdrant — клиент Qdrant: семантическое сходство с известными листингами."""
     text = item.text or ""
 
     # 1) сущности (общий regex-движок) + словарное представление для сигналов
@@ -59,6 +60,10 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
         signals.append("known_bad_entity")
     if item.source_type == "darknet":
         signals.append("darknet_listing")
+    if qdrant is not None:                                          # семантическое сходство
+        matched, _top = await similarity.similar_listing(qdrant, text)
+        if matched:
+            signals.append("similar_to_known_listing")
     signals = list(dict.fromkeys(signals))
 
     # 3) граф: upsert сущностей + повторяемость (скрытые связи между источниками)
@@ -108,5 +113,20 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
         signals=signals,
         entities=entities,
         wallet_risks=wallet_risks,
-        evidence=[item.title] if item.title else [],
+        evidence=_build_evidence(item, text, scored["breakdown"]),
     )
+
+
+def _build_evidence(item: ShadowItem, text: str, breakdown: list[dict]) -> list[str]:
+    """Объяснимость (Фаза 3): почему находка. Заголовок + совпавшие слова лексикона +
+    топ-3 вклада в риск-скоринг — чтобы аналитик видел основание."""
+    ev: list[str] = []
+    if item.title:
+        ev.append(item.title)
+    terms = taxonomy.matched_lexicon_terms(text)
+    if terms:
+        ev.append("лексикон: " + ", ".join(terms[:8]))
+    top = sorted(breakdown, key=lambda b: b["weight"], reverse=True)[:3]
+    if top:
+        ev.append("вклад: " + ", ".join(f"{b['signal']} (+{b['weight']})" for b in top))
+    return ev

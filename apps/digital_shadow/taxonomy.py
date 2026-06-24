@@ -86,6 +86,7 @@ SHADOW_SIGNAL_WEIGHTS: dict[str, int] = {
     "document_forgery": 25,
     "watchlisted": 30,              # сущность из watchlist аналитика
     "known_bad_entity": 40,         # сущность с подтверждённым abuse (репутация, flywheel)
+    "similar_to_known_listing": 25,  # семантически близко к известному «плохому» листингу
 }
 
 # Категория → характерные сигналы (для определения SHADOW_CATEGORY находки)
@@ -122,26 +123,45 @@ _LEX_RE: dict[str, re.Pattern[str]] = {
 }
 
 
-def detect_lexicon_signals(text: str) -> tuple[list[str], list[str]]:
-    """Вернуть (signals, matched_categories) по совпадениям лексикона/паттернов в тексте."""
+# ── Нормализация обфускации (Фаза 3) ─────────────────────────────────────────
+# Латиница → кириллица (визуальные двойники), чтобы «kлад»/«vейп» не обходили фильтр.
+_CONFUSABLES = str.maketrans({
+    "a": "а", "b": "в", "c": "с", "e": "е", "h": "н", "k": "к", "m": "м",
+    "o": "о", "p": "р", "t": "т", "x": "х", "y": "у", "v": "в",
+})
+# Разрядка: последовательность ≥3 одиночных букв через разделители («к л а д» → «клад»).
+_SPACED_RE = re.compile(
+    r"(?<![а-яёa-z])((?:[а-яёa-z][\s.\-_]+){2,}[а-яёa-z])(?![а-яёa-z])", re.IGNORECASE)
+_SEP_RE = re.compile(r"[\s.\-_]+")
+_REPEAT_RE = re.compile(r"(.)\1{2,}")  # «клааад» → «клад»
+
+
+def normalize_text(text: str) -> str:
+    """Снять типовую обфускацию для матчинга лексикона: lower + фолд гомоглифов +
+    схлопывание повторов и разрядки. Чистая функция."""
+    t = text.lower().translate(_CONFUSABLES)
+    t = _REPEAT_RE.sub(r"\1", t)
+    t = _SPACED_RE.sub(lambda m: _SEP_RE.sub("", m.group(1)), t)
+    return t
+
+
+def _scan(text: str) -> tuple[list[str], list[str], list[str]]:
+    """Один проход детекции по тексту → (signals, categories, matched_terms)."""
     signals: list[str] = []
     categories: list[str] = []
+    matches: list[str] = []
 
+    _CATEGORY_SIGNAL = {
+        "drug_trafficking": "drug_slang", "drop_recruitment": "drop_recruitment",
+        "kz_data_leak": "kz_data_leak", "counterfeit_goods": "counterfeit",
+        "document_forgery": "document_forgery",
+    }
     for category in LEXICON:
-        if _LEX_RE[category].search(text):
+        m = _LEX_RE[category].search(text)
+        if m:
             categories.append(category)
-            if category == "drug_trafficking":
-                signals.append("drug_slang")
-            elif category == "drop_recruitment":
-                signals.append("drop_recruitment")
-            elif category == "kz_data_leak":
-                signals.append("kz_data_leak")
-            elif category == "counterfeit_goods":
-                signals.append("counterfeit")
-            elif category == "document_forgery":
-                signals.append("document_forgery")
-            else:  # вейпы/алкоголь
-                signals.append("contraband_keyword")
+            matches.append(m.group(0))
+            signals.append(_CATEGORY_SIGNAL.get(category, "contraband_keyword"))
 
     if _ENCRYPTED_CONTACT_RE.search(text):
         signals.append("encrypted_contact")
@@ -151,8 +171,33 @@ def detect_lexicon_signals(text: str) -> tuple[list[str], list[str]]:
         signals.append("no_kyc")
     if _CRYPTO_ONLY_RE.search(text):
         signals.append("crypto_only_payment")
+    return signals, categories, matches
 
+
+def _variants(text: str) -> list[str]:
+    norm = normalize_text(text)
+    return [text, norm] if norm != text else [text]
+
+
+def detect_lexicon_signals(text: str) -> tuple[list[str], list[str]]:
+    """Вернуть (signals, matched_categories). Скан по оригиналу И нормализованному
+    тексту (анти-обфускация) — объединение; оригинал всегда проверяется → без регрессий."""
+    signals: list[str] = []
+    categories: list[str] = []
+    for variant in _variants(text):
+        s, c, _ = _scan(variant)
+        signals += s
+        categories += c
     return list(dict.fromkeys(signals)), list(dict.fromkeys(categories))
+
+
+def matched_lexicon_terms(text: str) -> list[str]:
+    """Совпавшие слова лексикона (для объяснимости/evidence). Скан оригинал + нормализованный."""
+    out: list[str] = []
+    for variant in _variants(text):
+        _, _, m = _scan(variant)
+        out += m
+    return list(dict.fromkeys(out))
 
 
 def classify_category(signals: list[str], lexicon_categories: list[str]) -> str:

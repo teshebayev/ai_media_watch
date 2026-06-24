@@ -38,6 +38,7 @@ from apps.digital_shadow.collectors import DarknetMockCollector  # noqa: E402
 from apps.digital_shadow.pipeline import analyze_item  # noqa: E402
 from apps.digital_shadow.schemas import ShadowFinding, ShadowItem  # noqa: E402
 from backend.app.clients.neo4j import ensure_constraints, make_neo4j_driver  # noqa: E402
+from backend.app.clients.qdrant import make_qdrant_client  # noqa: E402
 from backend.app.config import get_settings  # noqa: E402
 from core import graph_service  # noqa: E402
 
@@ -52,9 +53,16 @@ async def lifespan(app: FastAPI):
             await ensure_constraints(app.state.neo4j)
         except Exception:  # noqa: BLE001
             pass
+    # Qdrant — семантическое сходство с известными листингами (best-effort).
+    app.state.qdrant = make_qdrant_client() if s.enable_similarity else None
     yield
     if app.state.neo4j is not None:
         await app.state.neo4j.close()
+    if getattr(app.state, "qdrant", None) is not None:
+        try:
+            await app.state.qdrant.close()
+        except Exception:  # noqa: BLE001
+            pass
     if s.enable_db:
         from backend.app.clients.db import get_engine
 
@@ -94,7 +102,8 @@ async def analyze(item: ShadowItem) -> ShadowFinding:
     wl = await persistence.watchlist_values()
     bad = await persistence.bad_entity_values()
     finding = await analyze_item(
-        item, driver=getattr(app.state, "neo4j", None), watchlist=wl, bad_entities=bad)
+        item, driver=getattr(app.state, "neo4j", None), watchlist=wl, bad_entities=bad,
+        qdrant=getattr(app.state, "qdrant", None))
     await persistence.save_finding(
         finding, platform=item.platform, language=item.language, text=item.text)
     return finding
@@ -104,11 +113,12 @@ async def analyze(item: ShadowItem) -> ShadowFinding:
 async def collect_mock(query: str | None = None) -> dict:
     """Демо: собрать синтетические даркнет-листинги, проанализировать, сохранить, отсортировать."""
     driver = getattr(app.state, "neo4j", None)
+    qdrant = getattr(app.state, "qdrant", None)
     wl = await persistence.watchlist_values()
     bad = await persistence.bad_entity_values()
     findings: list[ShadowFinding] = []
     async for raw in DarknetMockCollector().collect(query):
-        f = await analyze_item(raw, driver=driver, watchlist=wl, bad_entities=bad)
+        f = await analyze_item(raw, driver=driver, watchlist=wl, bad_entities=bad, qdrant=qdrant)
         await persistence.save_finding(
             f, platform=raw.platform, language=raw.language, text=raw.text)
         findings.append(f)
