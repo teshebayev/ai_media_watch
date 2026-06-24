@@ -37,6 +37,16 @@ def test_indicators_only_public_indicators():
     assert dict(inds)["@scam_kz"] == "telegram"
 
 
+def test_infer_kind():
+    """Тип индикатора определяется по значению (для ручного watchlist-добавления)."""
+    assert persistence._infer_kind("@vape_kz") == "telegram"
+    assert persistence._infer_kind("vapeshop.kz") == "domain"
+    assert persistence._infer_kind("0xabcdef0123456789abcdef0123456789abcdef01") == "wallet"
+    assert persistence._infer_kind("bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh") == "wallet"
+    assert persistence._infer_kind("WIN5000") == "promo"
+    assert persistence._infer_kind("") is None
+
+
 def test_indicators_empty_and_dirty():
     assert persistence._indicators({}) == []
     assert persistence._indicators({"domains": ["", "  ", None]}) == []

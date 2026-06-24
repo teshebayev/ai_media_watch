@@ -36,6 +36,26 @@ def _safe_preview(text: str | None, signals: list[str]) -> str | None:
     return mask_pii(raw)[:500] or None if raw else None
 
 
+def _infer_kind(value: str) -> str | None:
+    """Определить тип индикатора по значению: telegram/wallet/domain/promo."""
+    import re
+
+    from apps.digital_shadow import crypto_risk
+
+    v = value.strip()
+    if not v:
+        return None
+    if v.startswith("@"):
+        return "telegram"
+    if crypto_risk.detect_wallet_type(v):
+        return "wallet"
+    if re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.[a-z]{2,}", v, re.IGNORECASE):
+        return "domain"
+    if re.fullmatch(r"[A-Za-z0-9]{4,20}", v):   # короткий буквенно-цифровой код
+        return "promo"
+    return None
+
+
 def _indicators(entities: dict) -> list[tuple[str, str]]:
     """(value, kind) публичных индикаторов из entities-словаря находки."""
     out: list[tuple[str, str]] = []
@@ -240,6 +260,7 @@ async def watchlist_add(value: str, *, kind: str | None = None, note: str | None
     from sqlalchemy.dialects.postgresql import insert
 
     from backend.app.clients.db import get_sessionmaker
+    kind = kind or _infer_kind(value)   # тип не задан → определяем по значению
     try:
         async with get_sessionmaker()() as db:
             stmt = insert(ShadowWatchlist).values(
