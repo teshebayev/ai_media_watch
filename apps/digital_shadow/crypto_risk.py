@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+
+logger = logging.getLogger(__name__)
 
 # Минимальный детект типа по формату адреса
 _PATTERNS = {
@@ -15,9 +19,29 @@ _PATTERNS = {
     "tron": re.compile(r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b"),  # TRC20 (USDT часто здесь)
 }
 
-# Демонстрационный список «плохих» адресов (в проде — подгружать фид/датасет).
-# TODO: заменить на загрузку из data/ или внешний сервис (chainalysis-подобный).
+# Список «плохих» адресов. Наполняется из файла-фида (по одному адресу в строке,
+# '#' — комментарий); репутация из БД даёт сигнал known_bad_entity отдельно (см. pipeline).
+_BAD_WALLETS_FILE = os.getenv("BAD_WALLETS_FILE", "data/shadow/bad_wallets.txt")
 _BAD_WALLETS: set[str] = set()
+
+
+def load_bad_wallets(path: str | None = None) -> int:
+    """Загрузить badlist кошельков из файла (best-effort). Возвращает число адресов."""
+    path = path or _BAD_WALLETS_FILE
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                addr = line.split("#", 1)[0].strip()
+                if addr:
+                    _BAD_WALLETS.add(addr)
+    except FileNotFoundError:
+        return len(_BAD_WALLETS)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось прочитать badlist %s: %s", path, e)
+    return len(_BAD_WALLETS)
+
+
+load_bad_wallets()  # подхватить фид при импорте, если файл присутствует
 
 # Признаки миксеров/тумблеров в сопроводительном тексте
 _MIXER_RE = re.compile(

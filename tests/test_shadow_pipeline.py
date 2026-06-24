@@ -54,6 +54,16 @@ def test_watchlist_signal():
     assert "watchlisted" not in f2.signals
 
 
+def test_known_bad_entity_signal():
+    """Репутация (flywheel): индикатор с подтверждённым abuse → сигнал known_bad_entity."""
+    wallet = "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"
+    item = ShadowItem(id="kb", source_type="paste", text=f"Перевод на кошелёк {wallet}")
+    f = asyncio.run(analyze_item(item, driver=None, bad_entities={wallet}))
+    assert "known_bad_entity" in f.signals
+    f2 = asyncio.run(analyze_item(item, driver=None))   # без репутации — нет сигнала
+    assert "known_bad_entity" not in f2.signals
+
+
 def test_priority_weighs_source():
     """Даркнет-источник тяжелее clearweb при тех же сигналах."""
     dn = prioritization.prioritize(risk_score=80, signals=["drug_slang"], source_type="darknet")

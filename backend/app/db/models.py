@@ -104,6 +104,21 @@ class ShadowWatchlist(Base):
         DateTime(timezone=True), server_default=func.now())
 
 
+class ShadowEntityReputation(Base):
+    """Репутация публичного индикатора (кошелёк/домен/@ник/промокод) — flywheel:
+    решения аналитика возвращаются в скоринг. ТОЛЬКО публичные индикаторы, НЕ ПДн (§0)."""
+
+    __tablename__ = "shadow_entity_reputation"
+
+    value: Mapped[str] = mapped_column(String(256), primary_key=True)
+    kind: Mapped[str | None] = mapped_column(String(24))   # wallet/domain/telegram/promo
+    abuse_count: Mapped[int] = mapped_column(Integer, default=0)
+    confirmed_count: Mapped[int] = mapped_column(Integer, default=0)
+    dismissed_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+
+
 class AnalystReview(Base):
     __tablename__ = "analyst_reviews"
 

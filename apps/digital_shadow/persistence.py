@@ -6,14 +6,44 @@ threat_score, source_type. Best-effort: сбой БД не валит анали
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+import logging
+
+from sqlalchemy import delete, func, select
 
 from apps.digital_shadow.schemas import ShadowFinding
 from backend.app.config import get_settings
+from backend.app.db.models import ShadowEntityReputation as ReputationRow
 from backend.app.db.models import ShadowFinding as ShadowFindingRow
 from backend.app.db.models import ShadowReview, ShadowWatchlist
 
+logger = logging.getLogger(__name__)
+
 _DECISION_STATUS = {"confirm": "confirmed", "dismiss": "dismissed", "in_review": "in_review"}
+
+# Поля сущностей-индикаторов (публичные, НЕ ПДн) → kind для репутации/watchlist.
+_INDICATOR_FIELDS = {
+    "domains": "domain", "crypto_wallets": "wallet",
+    "telegram_usernames": "telegram", "promo_codes": "promo",
+}
+
+
+def _safe_preview(text: str | None, signals: list[str]) -> str | None:
+    """Превью для триажа/active learning без сырых ПДн (§0): маскируем телефоны/ИИН/карты.
+    Нет текста → перечень сигналов (как раньше)."""
+    from apps.digital_shadow.leak_detector import mask_pii
+
+    raw = text or " ".join(signals)
+    return mask_pii(raw)[:500] or None if raw else None
+
+
+def _indicators(entities: dict) -> list[tuple[str, str]]:
+    """(value, kind) публичных индикаторов из entities-словаря находки."""
+    out: list[tuple[str, str]] = []
+    for field, kind in _INDICATOR_FIELDS.items():
+        for v in entities.get(field, []) or []:
+            if isinstance(v, str) and v.strip():
+                out.append((v.strip(), kind))
+    return out
 
 
 def _row_dict(r: ShadowFindingRow) -> dict:
@@ -36,8 +66,9 @@ def _row_dict(r: ShadowFindingRow) -> dict:
 
 
 async def save_finding(finding: ShadowFinding, *, platform: str | None = None,
-                       language: str | None = None) -> str | None:
-    """Сохранить находку. Возвращает id строки или None (БД выключена/недоступна)."""
+                       language: str | None = None, text: str | None = None) -> str | None:
+    """Сохранить находку. text — исходный текст элемента (для триажа и active learning);
+    при отсутствии — фолбэк на перечень сигналов. Возвращает id строки или None."""
     if not get_settings().enable_db:
         return None
     from backend.app.clients.db import get_sessionmaker
@@ -58,7 +89,8 @@ async def save_finding(finding: ShadowFinding, *, platform: str | None = None,
                 signals=finding.signals,
                 entities=finding.entities.model_dump(),
                 wallet_risks=finding.wallet_risks,
-                text_preview=" ".join(finding.signals)[:500] or None,
+                # §0: НЕ персистим сырые ПДн — маскируем телефоны/ИИН/карты в превью.
+                text_preview=_safe_preview(text, finding.signals),
             )
             db.add(row)
             await db.commit()
@@ -123,12 +155,82 @@ async def add_review(finding_id: str, decision: str, *, reviewer: str | None = N
             db.add(ShadowReview(finding_id=finding_id, decision=decision,
                                 reviewer=reviewer, notes=notes))
             row = await db.get(ShadowFindingRow, finding_id)
+            reputation = 0
             if row is not None:
                 row.status = status
+                # flywheel: решение → репутация сущностей (+ авто-watchlist при confirm)
+                reputation = await _apply_reputation(db, row.entities or {}, decision)
             await db.commit()
-            return {"finding_id": finding_id, "status": status, "decision": decision}
-    except Exception:  # noqa: BLE001
+            return {"finding_id": finding_id, "status": status,
+                    "decision": decision, "entities_updated": reputation}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("add_review(%s) не удался: %s", finding_id, e)
         return None
+
+
+async def _apply_reputation(db, entities: dict, decision: str) -> int:
+    """Инкремент репутации индикаторов находки по решению аналитика. confirm →
+    abuse/confirmed +1 и авто-watchlist; dismiss → dismissed +1. Возвращает кол-во сущностей."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    inds = _indicators(entities)
+    if not inds or decision == "in_review":
+        return 0
+    confirm = decision == "confirm"
+    ab, cf, dm = (1, 1, 0) if confirm else (0, 0, 1)
+    for value, kind in inds:
+        stmt = insert(ReputationRow).values(
+            value=value, kind=kind, abuse_count=ab,
+            confirmed_count=cf, dismissed_count=dm).on_conflict_do_update(
+            index_elements=["value"], set_={
+                "abuse_count": ReputationRow.abuse_count + ab,
+                "confirmed_count": ReputationRow.confirmed_count + cf,
+                "dismissed_count": ReputationRow.dismissed_count + dm,
+                "last_seen": func.now()})
+        await db.execute(stmt)
+        if confirm:  # подтверждённый индикатор — на постоянное наблюдение
+            wl = insert(ShadowWatchlist).values(
+                value=value, kind=kind, note="auto: confirmed review"
+            ).on_conflict_do_nothing(index_elements=["value"])
+            await db.execute(wl)
+    return len(inds)
+
+
+async def bad_entity_values() -> set[str]:
+    """Множество индикаторов с подтверждённым abuse (abuse_count>0) — в analyze_item
+    для сигнала known_bad_entity. Best-effort: БД выключена/недоступна → пустое."""
+    if not get_settings().enable_db:
+        return set()
+    from backend.app.clients.db import get_sessionmaker
+
+    try:
+        async with get_sessionmaker()() as db:
+            rows = (await db.execute(
+                select(ReputationRow.value).where(ReputationRow.abuse_count > 0))).scalars().all()
+        return set(rows)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("bad_entity_values недоступно: %s", e)
+        return set()
+
+
+async def fetch_review_rows() -> list[dict]:
+    """Размеченные ревью для active learning: {text, category, decision}.
+    Текст берём из находки (text_preview), категорию — её category. Best-effort."""
+    if not get_settings().enable_db:
+        return []
+    from backend.app.clients.db import get_sessionmaker
+
+    try:
+        q = (select(ShadowReview.decision, ShadowFindingRow.category,
+                    ShadowFindingRow.text_preview)
+             .join(ShadowFindingRow, ShadowReview.finding_id == ShadowFindingRow.id))
+        async with get_sessionmaker()() as db:
+            rows = (await db.execute(q)).all()
+        return [{"decision": d, "category": c, "text": t}
+                for (d, c, t) in rows if t and c]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fetch_review_rows недоступно: %s", e)
+        return []
 
 
 # ── Watchlist ────────────────────────────────────────────────────────────────

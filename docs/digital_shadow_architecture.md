@@ -83,7 +83,16 @@ flowchart TD
 **Шадоу-сигналы** (поверх `core.RISK_SIGNALS`, веса в `taxonomy.SHADOW_SIGNAL_WEIGHTS`):
 `darknet_listing`(25), `contraband_keyword`(25), `drug_slang`(35), `drop_recruitment`(35),
 `kz_data_leak`(40), `iin_dump_mention`(45), `bad_crypto_wallet`(40), `mixer_or_tumbler`(30),
-`crypto_only_payment`(15), `encrypted_contact`(15), `bulk_sale`(15), `no_kyc`(15) и др.
+`crypto_only_payment`(15), `encrypted_contact`(15), `bulk_sale`(15), `no_kyc`(15),
+`watchlisted`(30), `known_bad_entity`(40, репутация-flywheel) и др.
+
+**Flywheel (Фаза 2).** Решение аналитика возвращается в скоринг: `confirm` инкрементит
+репутацию индикаторов находки (`shadow_entity_reputation`: abuse/confirmed) и авто-добавляет
+их в watchlist; `dismiss` → dismissed. Индикатор с `abuse_count>0` → сигнал `known_bad_entity`
+на будущих листингах. Репутация/watchlist — ТОЛЬКО публичные индикаторы (домены/кошельки/@ник/
+промо), §0. Превью находки маскирует ПДн (`mask_pii`: телефоны/ИИН/карты).
+**Active learning:** `train_classifier --with-reviews` подмешивает размеченные ревью
+(`confirm`→категория, `dismiss`→hard-negative `unknown`).
 
 Лексикон матчится с **левой границей слова** `(?<!\w)` — чтобы «клад» не ловился в «оклад»,
 а легальная розничная продажа («продам вейп, чек и гарантия») не попадала в контрабанду

@@ -40,6 +40,38 @@ def load(path: str) -> tuple[list[str], list[str]]:
     return texts, labels
 
 
+def reviews_to_examples(rows: list[dict]) -> tuple[list[str], list[str]]:
+    """Active learning: размеченные ревью → (тексты, метки). confirmed → метка = категория
+    находки (позитив); dismissed → 'unknown' (hard-negative: «это НЕ та категория»);
+    in_review/без текста — пропуск. Чистая функция (для теста на пустом входе)."""
+    texts, labels = [], []
+    for r in rows:
+        text, cat, decision = r.get("text"), r.get("category"), r.get("decision")
+        if not text:
+            continue
+        if decision == "confirm" and cat:
+            texts.append(text)
+            labels.append(cat)
+        elif decision == "dismiss":
+            texts.append(text)
+            labels.append("unknown")
+    return texts, labels
+
+
+def load_review_examples() -> tuple[list[str], list[str]]:
+    """Подтянуть размеченные ревью из shadow_reviews (async) → примеры. Best-effort."""
+    import asyncio
+
+    from apps.digital_shadow import persistence
+
+    try:
+        rows = asyncio.run(persistence.fetch_review_rows())
+    except Exception as e:  # noqa: BLE001 — БД недоступна → без ревью
+        print(f"ревью недоступны ({e}); обучаюсь без них")
+        return [], []
+    return reviews_to_examples(rows)
+
+
 def build_pipeline():
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
@@ -61,10 +93,18 @@ def main() -> None:
     ap.add_argument("--data", default=DEFAULT_DATA)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--test-size", type=float, default=0.25)
+    ap.add_argument("--with-reviews", action="store_true",
+                    help="подмешать размеченные ревью аналитика (active learning)")
     args = ap.parse_args()
 
     X, y = load(args.data)
-    print(f"Загружено: {len(X)} примеров, классов: {len(set(y))}")
+    print(f"Загружено из датасета: {len(X)} примеров, классов: {len(set(y))}")
+
+    if args.with_reviews:
+        rx, ry = load_review_examples()
+        X += rx
+        y += ry
+        print(f"Добавлено из ревью: {len(rx)} (confirmed→категория, dismissed→unknown)")
 
     # stratify по возможности (нужно ≥2 на класс)
     from collections import Counter

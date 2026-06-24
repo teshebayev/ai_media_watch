@@ -92,8 +92,11 @@ async def health() -> dict:
 @app.post("/shadow/analyze", response_model=ShadowFinding)
 async def analyze(item: ShadowItem) -> ShadowFinding:
     wl = await persistence.watchlist_values()
-    finding = await analyze_item(item, driver=getattr(app.state, "neo4j", None), watchlist=wl)
-    await persistence.save_finding(finding, platform=item.platform, language=item.language)
+    bad = await persistence.bad_entity_values()
+    finding = await analyze_item(
+        item, driver=getattr(app.state, "neo4j", None), watchlist=wl, bad_entities=bad)
+    await persistence.save_finding(
+        finding, platform=item.platform, language=item.language, text=item.text)
     return finding
 
 
@@ -102,10 +105,12 @@ async def collect_mock(query: str | None = None) -> dict:
     """Демо: собрать синтетические даркнет-листинги, проанализировать, сохранить, отсортировать."""
     driver = getattr(app.state, "neo4j", None)
     wl = await persistence.watchlist_values()
+    bad = await persistence.bad_entity_values()
     findings: list[ShadowFinding] = []
     async for raw in DarknetMockCollector().collect(query):
-        f = await analyze_item(raw, driver=driver, watchlist=wl)
-        await persistence.save_finding(f, platform=raw.platform, language=raw.language)
+        f = await analyze_item(raw, driver=driver, watchlist=wl, bad_entities=bad)
+        await persistence.save_finding(
+            f, platform=raw.platform, language=raw.language, text=raw.text)
         findings.append(f)
     findings.sort(key=lambda f: f.threat_score, reverse=True)  # приоритет сверху
     return {"count": len(findings), "findings": [f.model_dump() for f in findings]}

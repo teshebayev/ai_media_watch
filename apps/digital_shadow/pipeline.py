@@ -29,10 +29,11 @@ logger = logging.getLogger(__name__)
 _REUSE_FIELDS = ("domains", "crypto_wallets", "telegram_usernames", "promo_codes")
 
 
-async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | None = None
-                       ) -> ShadowFinding:
+async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | None = None,
+                       bad_entities: set[str] | None = None) -> ShadowFinding:
     """Проанализировать один элемент. driver (Neo4j AsyncDriver) — опц.: upsert + reuse.
-    watchlist — множество отслеживаемых значений (кошельки/домены/@ник): совпадение → сигнал."""
+    watchlist — отслеживаемые значения (совпадение → watchlisted).
+    bad_entities — индикаторы с подтверждённым abuse (репутация → known_bad_entity)."""
     text = item.text or ""
 
     # 1) сущности (общий regex-движок) + словарное представление для сигналов
@@ -50,11 +51,12 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
         entities.crypto_wallets, context_text=text
     )
     signals += wallet_signals                                       # крипто-риск
-    if watchlist:                                                   # отслеживаемые сущности
-        flat = (entities.domains + entities.crypto_wallets
-                + entities.telegram_usernames + entities.promo_codes)
-        if any(v in watchlist for v in flat):
-            signals.append("watchlisted")
+    flat = (entities.domains + entities.crypto_wallets
+            + entities.telegram_usernames + entities.promo_codes)
+    if watchlist and any(v in watchlist for v in flat):             # отслеживаемые сущности
+        signals.append("watchlisted")
+    if bad_entities and any(v in bad_entities for v in flat):       # репутация (flywheel)
+        signals.append("known_bad_entity")
     if item.source_type == "darknet":
         signals.append("darknet_listing")
     signals = list(dict.fromkeys(signals))

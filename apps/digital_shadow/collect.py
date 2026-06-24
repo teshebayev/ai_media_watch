@@ -69,7 +69,8 @@ async def main() -> None:
             break
         n += 1
         f = await analyze_item(raw, driver=driver)
-        await persistence.save_finding(f, platform=raw.platform, language=raw.language)
+        await persistence.save_finding(
+            f, platform=raw.platform, language=raw.language, text=raw.text)
         findings.append(f)
 
     if driver is not None:

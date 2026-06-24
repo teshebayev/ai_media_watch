@@ -85,6 +85,7 @@ SHADOW_SIGNAL_WEIGHTS: dict[str, int] = {
     "counterfeit": 20,
     "document_forgery": 25,
     "watchlisted": 30,              # сущность из watchlist аналитика
+    "known_bad_entity": 40,         # сущность с подтверждённым abuse (репутация, flywheel)
 }
 
 # Категория → характерные сигналы (для определения SHADOW_CATEGORY находки)
