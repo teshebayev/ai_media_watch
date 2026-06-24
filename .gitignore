@@ -13,8 +13,11 @@ data/raw/**
 data/processed/*.jsonl
 data/processed/*.csv
 data/processed/*.log
-data/shadow/
+data/shadow/*
 !data/**/.gitkeep
+# курируемый hold-out — версионируем (не регенерируется); негация работает только
+# при глоб-форме data/shadow/* выше (директорная форма не даёт вернуть вложенный файл)
+!data/shadow/holdout_real.jsonl
 
 # media / models
 *.wav

@@ -1,0 +1,31 @@
+{"id": "ho_drug_01", "source_type": "darknet", "text": "Клад готов, ищи в указанной точке города, оплата криптой, связь только через session", "gold_category": "drug_trafficking", "gold_signals": ["drug_slang", "encrypted_contact"]}
+{"id": "ho_drug_02", "source_type": "clearweb", "text": "к л а д ы по районам, опт и розница, пишите", "gold_category": "drug_trafficking", "gold_signals": ["drug_slang"]}
+{"id": "ho_drug_03", "source_type": "darknet", "text": "Товар в наличии, депо по городу, оплата btc, мосты, без встреч", "gold_category": "drug_trafficking"}
+{"id": "ho_drop_01", "source_type": "clearweb", "text": "Нужны люди с картами разных банков, аренда карты, процент с каждого перевода, телеграм @drop_x_kz", "gold_category": "drop_recruitment", "gold_signals": ["drop_recruitment", "encrypted_contact"]}
+{"id": "ho_drop_02", "source_type": "paste", "text": "Работа дроповод, обнал и заливы на карты, выплаты сразу, пишите в личку", "gold_category": "drop_recruitment"}
+{"id": "ho_vape_01", "source_type": "clearweb", "text": "Электронки оптом без акцизных марок, elf bar ящиками, доставка по всему РК", "gold_category": "contraband_vape", "gold_signals": ["contraband_keyword", "bulk_sale"]}
+{"id": "ho_vape_kk_01", "source_type": "clearweb", "text": "Вейп көтерме, акцизсіз, арзан баға, жеткізу бар", "gold_category": "contraband_vape"}
+{"id": "ho_alco_01", "source_type": "clearweb", "text": "Алкоголь оптом без документов, виски ящиками, ночная доставка по городу", "gold_category": "contraband_alcohol", "gold_signals": ["contraband_keyword", "bulk_sale"]}
+{"id": "ho_crypto_01", "source_type": "darknet", "text": "Чищу крипту через миксер, анонимный обмен USDT без KYC, чистые монеты", "gold_category": "suspicious_crypto", "gold_signals": ["mixer_or_tumbler", "no_kyc"]}
+{"id": "ho_crypto_02", "source_type": "paste", "text": "Принимаю оплату только на кошелёк tron usdt, без следов и верификации", "gold_category": "suspicious_crypto"}
+{"id": "ho_leak_01", "source_type": "paste", "text": "Продам базу клиентов банка РК, свежий слив, ИИН 901231300123 и телефоны, пробив по запросу", "gold_category": "kz_data_leak", "gold_signals": ["kz_data_leak", "iin_dump_mention"]}
+{"id": "ho_leak_kk_01", "source_type": "paste", "text": "Базаны сатамын, ҚР азаматтары, жаңа дамп, пробив бар", "gold_category": "kz_data_leak"}
+{"id": "ho_counterfeit_01", "source_type": "clearweb", "text": "Реплики брендовых сумок ААА качество, копии часов известных марок, опт и розница", "gold_category": "counterfeit_goods"}
+{"id": "ho_forgery_01", "source_type": "clearweb", "text": "Изготовление дипломов, медицинских справок и водительских прав, любой документ под заказ", "gold_category": "document_forgery"}
+{"id": "ho_drug_obf_01", "source_type": "darknet", "text": "Есть kлад, vысокое kачество, оплата tron, пиши в jabber", "gold_category": "drug_trafficking"}
+{"id": "ho_drop_03", "source_type": "darknet", "text": "Дропы под обнал, карты в аренду, заливы, оплата usdt, контакт threema", "gold_category": "drop_recruitment"}
+{"id": "ho_vape_02", "source_type": "clearweb", "text": "Жидкости и поды оптом без акциза, прямые поставки, минимальный заказ ящик", "gold_category": "contraband_vape"}
+{"id": "ho_crypto_03", "source_type": "darknet", "text": "Обнал крипты, тумблер, разрыв цепочки транзакций, анонимно", "gold_category": "suspicious_crypto"}
+{"id": "ho_legit_job_01", "source_type": "clearweb", "text": "Вакансия: менеджер по продажам, оклад 250000 тг, официальное трудоустройство, соцпакет, офис в центре", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_vape_01", "source_type": "clearweb", "text": "Продам вейп, оригинал, чек и гарантия, продажа только лицам старше 21 года, самовывоз", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_bank_01", "source_type": "clearweb", "text": "Официальное уведомление Halyk Bank: плановые технические работы 20 июня с 02:00 до 04:00", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_market_01", "source_type": "clearweb", "text": "Продам диван б/у в хорошем состоянии, самовывоз, недорого, возможен торг", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_crypto_edu_01", "source_type": "clearweb", "text": "Бесплатный вебинар: как распознать криптомошенников и защитить свои сбережения", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_news_01", "source_type": "clearweb", "text": "АФМ предупреждает граждан о росте числа финансовых пирамид и призывает к осторожности", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_rent_01", "source_type": "clearweb", "text": "Сдам 2-комнатную квартиру в аренду, длительно, мебель и техника, рядом метро", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_job_kk_01", "source_type": "clearweb", "text": "Жұмыс: жүргізуші, B санаты, тәжірибе 3 жыл, ресми жалақы", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_shop_01", "source_type": "clearweb", "text": "Магазин электроники: рассрочка 0%, официальная гарантия производителя, доставка по городу", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_exchange_01", "source_type": "clearweb", "text": "Обмен валюты по выгодному курсу в лицензированном обменном пункте, чек выдаётся", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_course_01", "source_type": "clearweb", "text": "Курсы казахского языка онлайн, сертификат по окончании, рассрочка оплаты", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_charity_01", "source_type": "clearweb", "text": "Благотворительный фонд собирает средства на лечение детей, отчётность открытая", "gold_category": "unknown", "legit": true}
+{"id": "ho_legit_usedphone_01", "source_type": "clearweb", "text": "Продам телефон бывший в употреблении, оригинал, чек сохранён, встреча в центре", "gold_category": "unknown", "legit": true}

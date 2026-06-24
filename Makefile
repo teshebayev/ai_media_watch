@@ -1,4 +1,4 @@
-.PHONY: install lock up down logs api test lint index index-kb ask demo stack stack-llm stack-docker media shadow shadow-front shadow-seed shadow-eval shadow-gen shadow-collect shadow-train shadow-index
+.PHONY: install lock up down logs api test lint index index-kb ask demo stack stack-llm stack-docker media shadow shadow-front shadow-seed shadow-eval shadow-gen shadow-collect shadow-train shadow-index shadow-holdout shadow-demo
 
 # --- Локальная разработка (uv) ---
 install:           ## Установить зависимости из lock
@@ -91,6 +91,14 @@ shadow-train:      ## Обучить ML-классификатор катего�
 shadow-index:      ## Проиндексировать листинги в Qdrant (семантическое сходство, DATA=path)
 	PYTHONPATH=. CUDA_VISIBLE_DEVICES="" QDRANT_URL=http://localhost:6333 \
 	  uv run python -m apps.digital_shadow.index_listings --data $(or $(DATA),data/shadow/all.jsonl)
+
+shadow-holdout:    ## Честная оценка на ручном hold-out (precision/recall/F1 + FPR на legit)
+	PYTHONPATH=. CUDA_VISIBLE_DEVICES="" uv run python -m apps.digital_shadow.run_batch \
+	  --holdout data/shadow/holdout_real.jsonl
+
+shadow-demo:       ## Killer-демо синергии Media↔Shadow (мост по кошельку в общем графе)
+	ENABLE_GRAPH=true NEO4J_URI=bolt://localhost:7687 NEO4J_PASSWORD=finguard_pass \
+	  CUDA_VISIBLE_DEVICES="" PYTHONPATH=. uv run python scripts/demo_cross_product.py
 
 # Бэкенд для фронта без GPU: LLM выключен, Qdrant+Neo4j на localhost.
 api-cpu:           ## FastAPI на CPU (LLM off, similarity+graph on)
