@@ -12,6 +12,19 @@ deepfake-реклама и связанные цифровые следы.
 план инфраструктуры — [`finguard_infra_plan.md`](finguard_infra_plan.md),
 полная схема — [`docs/pipeline.md`](docs/pipeline.md), сервисы и доступы — [`docs/services.md`](docs/services.md).
 
+## Два продукта на общем движке
+Один движок `core` (извлечение сущностей, risk-engine, **общий Neo4j-граф**, Qdrant, Postgres) —
+два продукта, которые связываются между собой через общие узлы графа:
+
+| Продукт | Назначение | API | Документация |
+|---|---|---|---|
+| **AI Media Watch** | контент-антифрод: текст, ссылки, **аудио-звонки, видео** (дипфейк/ASR) | `:8088` `/analyze/*` | этот README |
+| **Digital Shadow** | OSINT/DarkNet-мониторинг: контрабанда, дропы, крипто-риск, утечки баз РК | `:8090` `/shadow/*` | [`docs/digital_shadow_architecture.md`](docs/digital_shadow_architecture.md) |
+
+За счёт общего графа сущность (кошелёк/домен/`@ник`) из теневого листинга и из соцвидео сходится
+в один узел → кросс-продуктовые «мосты». Единая Next.js-консоль (`:3000/console`) объединяет оба
+продукта в одном окне.
+
 ## Пайплайн (ТЗ §2)
 ```
 media → combined_text → entities (regex+NER+LLM) → scenario (LLM)
@@ -20,8 +33,54 @@ media → combined_text → entities (regex+NER+LLM) → scenario (LLM)
 Поверх той же Qdrant — **AFM Knowledge Agent** (RAG): гибридный поиск (dense e5 + sparse BM25, RRF)
 по базе знаний АФМ + ответ vLLM (`/agent/*`). Полная mermaid-схема — в [`docs/pipeline.md`](docs/pipeline.md).
 
+## Digital Shadow (OSINT/DarkNet)
+Второй продукт (`apps/digital_shadow/`) — мониторинг открытых ресурсов и DarkNet-сегментов:
+контрабанда (вейпы/алкоголь/наркотики), вербовка дропов, подозрительные криптокошельки,
+продажа утечек баз РК. Сквозной путь: коллектор → сущности → риск-сигналы → скоринг → **граф
+скрытых связей** → приоритизация для аналитика.
+
+```bash
+docker compose -f infra/docker-compose.yml up -d qdrant neo4j postgres   # общая инфра
+make shadow            # API :8090       make shadow-front   # статический UI :8091
+curl -X POST localhost:8090/shadow/collect/demo                          # демо-кластеры по торговлям
+curl "localhost:8090/shadow/clusters"                                    # кластеры: cross_category, hub, risk
+curl "localhost:8090/shadow/path?a=@drop_team_kz&b=TDr9Y2kh..."          # «почему две сущности связаны»
+```
+
+Ключевое:
+- **Кросс-категорийный граф** — общий кошелёк/контакт в листингах наркотиков и дропов → кластер
+  помечается `cross_category`; «вожак» (`hub`) = центральный узел сети; риск-скоринг акторов.
+- **Объяснимость пути** (`/shadow/path`) — кратчайший путь между сущностями с обоснованием.
+- **Сбор**: file · http/Tor · rss · **paste** (фильтр утечек РК) · демо-DarkNet; дедуп/инкремент
+  (`seen_store`), ингест abuse-фидов кошельков (chainabuse/bitcoinabuse).
+- **Детекция**: 8 категорий, лексикон ru/kk, анти-обфускация, извлечение BTC/ETH/**TRON-TRC20**.
+- **Триаж**: очередь по threat, ревью, репутация-flywheel, watchlist; объяснимые `evidence`.
+- **§0**: только публичные источники; реальные ПДн не храним (маски/хэши); граф/БД — best-effort.
+
+Эндпоинты `/shadow/*`: `analyze · collect/{mock,demo} · clusters · actors[/scored] · path ·
+graph · queue · findings/{id}/review · watchlist · signals · sessions · health`.
+Метрики (honest hold-out): FPR на легальных контрпримерах **0%**, покрытие сигналов 94%.
+
+## Единая консоль аналитика (`:3000/console`)
+Next.js-консоль (репо [av1cu/ai_media_watch_frontend](https://github.com/av1cu/ai_media_watch_frontend))
+объединяет оба продукта. Вкладки:
+- **Текст** — фрод-анализ (Media) + блок «Digital Shadow — анализ листинга» (демо-тексты по торговлям).
+- **Ссылка · Аудио-звонок · Видео** — анализ по URL; **запись звонка с микрофона** (MediaRecorder)
+  и загрузка аудио/видео → Whisper + OCR кадров + детектор дипфейка.
+- **Мониторинг** — живой мок-поток входящих звонков/сообщений: каждый прогоняется через анализатор,
+  высокий риск подсвечивается.
+- **Digital Shadow** — граф кластеров (cross_category, вожак, риск сети).
+- **История / Статистика** — журнал сеансов, ревью, агрегаты.
+
+Из любого отчёта/сеанса — кнопка **«📄 Сформировать заключение»**: открывает официальный документ
+([`presentation/finding_report_template.html`](presentation/finding_report_template.html), served как
+`/report.html`), заполненный находкой, с подписью **генерального директора** и маршрутизацией
+(АФМ/правоохранительные органы/банк) — печать в PDF.
+
 ## Структура
 ```
+apps/digital_shadow/  Digital Shadow (:8090): pipeline, taxonomy, crypto_risk, leak_detector, actors (граф), collectors/ (file/http/rss/paste/demo), seen_store, persistence, app.py
+apps/media_watch/     тонкая обёртка контент-антифрода поверх core
 backend/app/        FastAPI: api/ (analyze/graph/search/sessions/agent/health), services/ (pipeline/ingest/scenario/similarity/graph/deepfake/osint/knowledge/sessions), clients/, schemas/, db/ (SQLAlchemy + Alembic)
 src/extraction/     regex_extractors, signal_extractor, kaznerd_ner
 src/media/          asr_whisper, ocr (EasyOCR), asr_check, fakeface_*
