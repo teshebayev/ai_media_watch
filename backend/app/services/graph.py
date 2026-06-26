@@ -33,16 +33,27 @@ RETURN count(DISTINCT s) AS uses
 
 
 async def upsert_entities(
-    driver: AsyncDriver, record_id: str, entities: Entities, *, source_label: str = "Video"
+    driver: AsyncDriver, record_id: str, entities: Entities, *, source_label: str = "Video",
+    node_props: dict | None = None,
 ) -> None:
     """Записать сущности записи в Shadow Graph. source_label — тип узла-источника
     (Media Watch: Video/Post/Call; Digital Shadow: ShadowItem). Кошельки и telegram —
-    общие узлы → кросс-продуктовая связка."""
+    общие узлы → кросс-продуктовая связка.
+
+    node_props — свойства узла-источника (напр. {"category","source_type"} для Shadow):
+    хранятся на узле → кросс-КАТЕГОРИЙНЫЙ анализ (один кошелёк в наркотиках и дропах).
+    Берём только скалярные значения (str/int/float/bool) — без вложенных структур в графе."""
     s = get_settings()
     if not s.enable_graph:
         return
     label = source_label if source_label in _SOURCE_LABELS else "Source"
+    props = {k: v for k, v in (node_props or {}).items()
+             if isinstance(v, (str, int, float, bool)) and v is not None}
     async with driver.session() as session:
+        if props:
+            # один MERGE узла-источника со свойствами; ниже MERGE'и сольются в него
+            await session.run(
+                f"MERGE (s:{label} {{id:$id}}) SET s += $props", id=record_id, props=props)
         for domain in entities.domains:
             await session.run(
                 f"MERGE (s:{label} {{id:$id}}) MERGE (d:Domain {{name:$v}}) "
@@ -111,13 +122,17 @@ def _node_key(node) -> str:
         return f"{props['name']}"
     if "code" in props:
         return f"{props['code']}"
+    if "address" in props:          # кошельки идентифицируются адресом, а не name/code
+        return f"{props['address']}"
     return f"{props.get('id', node.element_id)}"
 
 
 def _node_dict(node) -> dict:
     labels = list(node.labels)
     props = dict(node)
-    label_text = props.get("name") or props.get("code") or props.get("id") or "?"
+    # порядок резолвинга подписи: name → code → address (кошельки) → id
+    label_text = (props.get("name") or props.get("code")
+                  or props.get("address") or props.get("id") or "?")
     return {
         "id": _node_key(node),
         "label": label_text,
@@ -171,3 +186,89 @@ async def overview(driver: AsyncDriver, entities: int = 8, limit: int = 200) -> 
         result = await session.run(OVERVIEW_QUERY, entities=entities, limit=limit)
         records = [r async for r in result]
     return _collect(records)
+
+
+# Подграф конкретного типа источника (напр. ShadowItem): источники + ВСЕ их сущности
+# (включая кошельки). В отличие от overview не отдаёт приоритет узлам с высокой
+# повторяемостью → новые теневые листинги не теряются за доминирующими Media-узлами.
+SOURCE_SUBGRAPH_QUERY = """
+MATCH (s)-[r]->(e) WHERE $label IN labels(s)
+RETURN s, e, r LIMIT $limit
+"""
+
+
+async def source_subgraph(driver: AsyncDriver, source_label: str, limit: int = 250) -> dict:
+    """nodes/edges для всех источников заданного типа и их сущностей. source_label —
+    из контролируемого allowlist (защита от инъекции лейбла)."""
+    s = get_settings()
+    if not s.enable_graph or source_label not in _SOURCE_LABELS:
+        return {"nodes": [], "edges": []}
+    async with driver.session() as session:
+        result = await session.run(SOURCE_SUBGRAPH_QUERY, label=source_label, limit=limit)
+        records = [r async for r in result]
+    return _collect(records)
+
+
+# --- Объяснимость связи: кратчайший путь между двумя сущностями ---------------
+def _node_caption(node) -> str:
+    """Короткая подпись узла для объяснения: 'Wallet bc1qxy…' / 'ShadowItem dn_drug_001'."""
+    props = dict(node)
+    label = list(node.labels)[0] if node.labels else "Node"
+    val = props.get("name") or props.get("code") or props.get("address") or props.get("id") or "?"
+    cat = props.get("category")
+    tail = f" [{cat}]" if cat and cat != "unknown" else ""
+    return f"{label} {val}{tail}"
+
+
+def _explain_path(path) -> list[str]:
+    """Человекочитаемая цепочка: почему A и B связаны (по шагам пути)."""
+    nodes = list(path.nodes)
+    if len(nodes) < 2:
+        return []
+    steps: list[str] = []
+    sources = [n for n in nodes if set(n.labels) & _SOURCE_LABELS]
+    if len(nodes) == 3 and sources:
+        # A ← источник → B: общий источник упомянул обе сущности
+        return [f"Обе сущности упоминаются в одном источнике: {_node_caption(sources[0])}"]
+    for a, b in zip(nodes, nodes[1:], strict=False):
+        a_src = bool(set(a.labels) & _SOURCE_LABELS)
+        link = ("упоминает" if a_src else "упомянут(а) в")
+        steps.append(f"{_node_caption(a)} → {link} → {_node_caption(b)}")
+    return steps
+
+
+async def explain_link(driver: AsyncDriver, a: str, b: str, *, max_hops: int = 5) -> dict:
+    """Кратчайший путь между сущностями a и b в общем графе + объяснение «почему связаны».
+
+    Возвращает {found, hops, explanation[], nodes[], edges[]}. Сущности матчатся по
+    нормализованным формам (entity_norm). max_hops клампится (1..6) — int инлайнится в
+    шаблон пути (параметр Cypher там не допускается; значение валидируется как целое)."""
+    s = get_settings()
+    if not s.enable_graph:
+        return {"found": False, "explanation": [], "nodes": [], "edges": []}
+    hops = max(1, min(int(max_hops), 6))
+    query = (
+        "MATCH (a) WHERE a.name IN $va OR a.code IN $va OR a.address IN $va "
+        "MATCH (b) WHERE b.name IN $vb OR b.code IN $vb OR b.address IN $vb "
+        "WITH a, b WHERE a <> b "
+        f"MATCH p = shortestPath((a)-[*..{hops}]-(b)) "
+        "RETURN p LIMIT 1"
+    )
+    async with driver.session() as session:
+        result = await session.run(
+            query, va=normalized_variants(a), vb=normalized_variants(b))
+        rec = await result.single()
+    if rec is None:
+        return {"found": False, "explanation": [
+            "Прямой связи в пределах заданного числа шагов не найдено."],
+            "nodes": [], "edges": []}
+    path = rec["p"]
+    sub = _collect([{ "e": n } for n in path.nodes] +
+                   [{ "r": r } for r in path.relationships])
+    return {
+        "found": True,
+        "hops": len(list(path.relationships)),
+        "explanation": _explain_path(path),
+        "nodes": sub["nodes"],
+        "edges": sub["edges"],
+    }

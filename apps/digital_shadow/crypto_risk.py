@@ -43,6 +43,32 @@ def load_bad_wallets(path: str | None = None) -> int:
 
 load_bad_wallets()  # подхватить фид при импорте, если файл присутствует
 
+
+def ingest_abuse_feed(text: str) -> int:
+    """Подмешать в badlist адреса из публичного abuse-фида (chainabuse/bitcoinabuse и т.п.).
+
+    Толерантно к формату: на каждой строке (CSV/JSON/plain) выбираем токены, похожие на
+    крипто-адрес (btc/eth/tron по _PATTERNS), и добавляем их. Возвращает число новых адресов."""
+    before = len(_BAD_WALLETS)
+    for line in text.splitlines():
+        line = line.split("#", 1)[0]
+        for rx in _PATTERNS.values():
+            for m in rx.finditer(line):
+                _BAD_WALLETS.add(m.group(0))
+    return len(_BAD_WALLETS) - before
+
+
+def load_abuse_feed_file(path: str) -> int:
+    """Загрузить abuse-фид из файла (best-effort). Возвращает число добавленных адресов."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return ingest_abuse_feed(f.read())
+    except FileNotFoundError:
+        return 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось прочитать abuse-фид %s: %s", path, e)
+        return 0
+
 # Признаки миксеров/тумблеров в сопроводительном тексте
 _MIXER_RE = re.compile(
     r"\b(mixer|tumbler|миксер|тумблер|отмыв|launder|чистая\s+крипт)\b", re.IGNORECASE

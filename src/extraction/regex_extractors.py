@@ -20,6 +20,9 @@ RE_CRYPTO_KW = re.compile(
 )
 RE_BTC = re.compile(r"\b(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b")
 RE_ETH = re.compile(r"0x[a-fA-F0-9]{40}")
+# TRON/TRC20 (USDT часто здесь — типичный способ оплаты в KZ крипто-преступности):
+# T + 33 символа base58 (без 0/O/I/l).
+RE_TRON = re.compile(r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b")
 
 _DOMAIN_RE = re.compile(r"https?://([^/\s]+)|www\.([^/\s]+)")
 
@@ -80,7 +83,8 @@ def extract_money(text: str) -> list[str]:
 def extract_crypto_wallets(text: str) -> list[str]:
     btc = [m.group(0) for m in RE_BTC.finditer(text)]
     eth = [m.group(0) for m in RE_ETH.finditer(text)]
-    return _unique(btc + eth)
+    tron = [m.group(0) for m in RE_TRON.finditer(text)]
+    return _unique(btc + eth + tron)
 
 
 def extract_phones_masked(text: str) -> list[str]:

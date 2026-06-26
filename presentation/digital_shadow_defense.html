@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digital Shadow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070a12; --bg2:#0e1422; --glass:rgba(20,28,46,.55); --line:rgba(120,150,200,.16);
+    --txt:#eaf0fb; --mut:#93a3c2; --dim:#54627e;
+    --a:#4da3ff; --b:#7c5cff; --c:#21d4fd; --ok:#35d07f; --warn:#ffb454; --bad:#ff5c7c;
+    --grot:'Space Grotesk',system-ui,sans-serif; --inter:'Inter',system-ui,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:var(--inter);overflow:hidden}
+  /* живой граф-фон */
+  #net{position:fixed;inset:0;z-index:0;opacity:.5}
+  .glow{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(700px 500px at 18% 22%,rgba(124,92,255,.18),transparent 60%),
+      radial-gradient(680px 520px at 82% 78%,rgba(33,212,253,.13),transparent 60%),
+      radial-gradient(500px 400px at 60% 10%,rgba(77,163,255,.10),transparent 60%);}
+  .deck{position:relative;z-index:2;height:100vh;width:100vw}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:6vh 7vw 9vh;overflow-y:auto}
+  .slide.on{display:flex}
+  .slide.title{justify-content:space-between;padding-top:8vh;padding-bottom:9vh}
+  /* reveal */
+  .slide.on .rv{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+  .slide.on .rv:nth-child(2){animation-delay:.06s}.slide.on .rv:nth-child(3){animation-delay:.12s}
+  .slide.on .rv:nth-child(4){animation-delay:.18s}.slide.on .rv:nth-child(5){animation-delay:.24s}
+  @keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+
+  h1{font-family:var(--grot);font-size:clamp(44px,6.4vw,92px);line-height:1.02;letter-spacing:-.025em;font-weight:700}
+  h2{font-family:var(--grot);font-size:clamp(26px,3.6vw,46px);margin-bottom:24px;letter-spacing:-.02em;font-weight:600}
+  .grad{background:linear-gradient(105deg,var(--c),var(--a) 45%,var(--b));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .kicker{font-family:var(--mono);font-size:13px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--c);margin-bottom:20px;display:flex;align-items:center;gap:12px}
+  .kicker:before{content:'';width:30px;height:1px;background:linear-gradient(90deg,var(--c),transparent)}
+  .sub{color:var(--mut);font-size:clamp(17px,2vw,26px);margin-top:22px;max-width:74ch;line-height:1.5}
+
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .chip{font-family:var(--mono);font-size:13px;color:#cfe0ff;padding:8px 16px;border-radius:999px;
+    background:rgba(77,163,255,.08);border:1px solid var(--line);backdrop-filter:blur(6px)}
+
+  .grid{display:grid;gap:16px;margin-top:8px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--glass);border:1px solid var(--line);border-radius:18px;padding:24px;
+    backdrop-filter:blur(14px);position:relative;overflow:hidden}
+  .card:before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(150,180,255,.4),transparent)}
+  .card h3{font-family:var(--mono);font-size:14px;color:var(--a);margin-bottom:10px;letter-spacing:.02em}
+  .card p{color:var(--mut);font-size:clamp(13px,1.45vw,16px);line-height:1.5}
+  .card.hl{background:linear-gradient(160deg,rgba(124,92,255,.16),rgba(33,212,253,.06));border-color:rgba(124,92,255,.4)}
+
+  .num{font-family:var(--grot);font-weight:700;font-size:clamp(38px,5.4vw,64px);line-height:1;
+    background:linear-gradient(120deg,#fff,var(--c));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .num.ok{background:linear-gradient(120deg,#bfffe0,var(--ok));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .num.warn{background:linear-gradient(120deg,#ffe6c2,var(--warn));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .unit{font-size:.42em;color:var(--mut);font-weight:600;-webkit-text-fill-color:var(--mut)}
+  .cap{color:var(--mut);font-size:14px;margin-top:12px;line-height:1.4}
+  .src{font-family:var(--mono);font-size:11px;color:#46546e;margin-top:10px}
+
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px;margin-top:12px}
+  .step{font-family:var(--mono);font-size:13px;background:var(--glass);border:1px solid var(--line);
+    border-radius:13px;padding:13px 17px;color:#d6e2f7;backdrop-filter:blur(10px);display:flex;flex-direction:column;gap:3px;justify-content:center}
+  .step small{color:var(--mut);font-size:11px}
+  .step.a{border-color:rgba(77,163,255,.5);box-shadow:0 0 22px rgba(77,163,255,.12)}
+  .step.g{border-color:rgba(53,208,127,.5);box-shadow:0 0 22px rgba(53,208,127,.1)}
+  .arr{align-self:center;width:24px;height:2px;background:linear-gradient(90deg,var(--a),var(--b));position:relative;flex:none;border-radius:2px}
+  .arr:after{content:'';position:absolute;right:-1px;top:-4px;border-left:8px solid var(--b);border-top:5px solid transparent;border-bottom:5px solid transparent}
+
+  ul{list-style:none;display:flex;flex-direction:column;gap:13px;margin-top:6px}
+  li{font-size:clamp(15px,1.6vw,20px);line-height:1.4;padding-left:30px;position:relative;color:#d2dcef}
+  li:before{content:'';position:absolute;left:0;top:.42em;width:11px;height:11px;border-radius:4px;
+    background:linear-gradient(135deg,var(--c),var(--b));box-shadow:0 0 12px rgba(33,212,253,.5)}
+  li b{color:#fff}
+
+  .tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+  .tag{font-family:var(--mono);font-size:12px;color:#bcd4ff;padding:6px 13px;border-radius:8px;
+    background:rgba(77,163,255,.07);border:1px solid var(--line)}
+  .note{color:var(--mut);font-size:14px;margin-top:18px;line-height:1.5;max-width:78ch}
+
+  .bar{position:fixed;top:0;left:0;height:3px;z-index:9;
+    background:linear-gradient(90deg,var(--c),var(--a),var(--b));transition:width .4s;box-shadow:0 0 14px rgba(77,163,255,.6)}
+  .nav{position:fixed;bottom:26px;right:30px;display:flex;align-items:center;gap:14px;z-index:9}
+  .nav button{background:var(--glass);border:1px solid var(--line);color:var(--txt);padding:0 18px;height:44px;
+    border-radius:12px;font-size:14px;cursor:pointer;font-family:var(--inter);backdrop-filter:blur(10px);transition:.2s}
+  .nav button:hover{border-color:var(--a);transform:translateY(-1px)}
+  .count{font-family:var(--mono);color:var(--mut);font-size:14px}
+  .dots{position:fixed;bottom:34px;left:30px;display:flex;gap:9px;z-index:9}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--line);cursor:pointer;transition:.25s}
+  .dot.on{background:var(--c);box-shadow:0 0 0 4px rgba(33,212,253,.16)}
+  .foot{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);color:#3c4a64;font-family:var(--mono);font-size:11px;z-index:8}
+  .logo{position:fixed;top:24px;left:30px;z-index:9;font-family:var(--mono);font-size:12px;letter-spacing:.2em;color:var(--mut)}
+  .logo b{color:var(--c)}
+</style>
+</head>
+<body>
+<canvas id="net"></canvas>
+<div class="glow"></div>
+<div class="bar" id="bar"></div>
+<div class="logo"><b>◆</b> DIGITAL&nbsp;SHADOW</div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide title on">
+    <div class="rv">
+      <div class="kicker">OSINT · DarkNet · Graph Intelligence</div>
+      <h1><span class="grad">Digital Shadow</span><br>выявление незаконной<br>активности в интернете</h1>
+    </div>
+    <p class="sub rv">Мониторинг открытых ресурсов и DarkNet: контрабанда, дропы, подозрительные
+    криптокошельки и утечки баз Республики Казахстан. На выходе — объяснимые риск-сигналы для аналитика.</p>
+    <div class="rv">
+      <div class="chips">
+        <span class="chip">контрабанда</span><span class="chip">дропы</span>
+        <span class="chip">крипто-риск</span><span class="chip">утечки баз РК</span>
+        <span class="chip">графовый анализ</span><span class="chip">приоритизация угроз</span>
+      </div>
+      <div class="flow" style="margin-top:26px">
+        <span class="step a">Сбор</span><span class="arr"></span>
+        <span class="step">Сущности</span><span class="arr"></span>
+        <span class="step">Риск-сигналы</span><span class="arr"></span>
+        <span class="step g">Граф Neo4j</span><span class="arr"></span>
+        <span class="step">Приоритет</span><span class="arr"></span>
+        <span class="step a">Триаж аналитика</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · REAL DATA -->
+  <section class="slide">
+    <div class="kicker rv">Зачем это нужно · реальные данные</div>
+    <h2 class="rv">Теневой рынок в РК — это не гипотеза, а цифры</h2>
+    <div class="grid g4 rv">
+      <div class="card hl"><div class="num warn"><span data-num="11.4" data-dec="1">0</span> <span class="unit">млрд ₸</span></div>
+        <div class="cap">ущерб от интернет-мошенничества в Казахстане за 2024 — в 2,8 раза больше, чем годом ранее</div>
+        <div class="src">Finprom.kz · Ranking.kz</div></div>
+      <div class="card hl"><div class="num"><span data-num="16.3" data-dec="1">0</span> <span class="unit">млн</span></div>
+        <div class="cap">записей в крупнейшей утечке данных РК (2025): ИИН, ФИО, адреса, телефоны — &gt;75% населения</div>
+        <div class="src">Astana Times · Orda.kz</div></div>
+      <div class="card hl"><div class="num warn"><span data-num="26.3" data-dec="1">0</span> <span class="unit">тыс.</span></div>
+        <div class="cap">уголовных дел по интернет-мошенничеству за 11 мес. 2025 — рост на 20%</div>
+        <div class="src">Informburo.kz</div></div>
+      <div class="card hl"><div class="num bad" style="background:linear-gradient(120deg,#ffd0db,var(--bad));-webkit-background-clip:text;background-clip:text;color:transparent"><span data-num="28">0</span> <span class="unit">%</span></div>
+        <div class="cap">похищенного уходит со счёта-дропа за 15 минут, ещё 25% — за час: скорость не оставляет времени вручную</div>
+        <div class="src">RUSI · Outseer</div></div>
+    </div>
+    <p class="note rv">Объём, скорость и обфускация делают ручной мониторинг невозможным. Нужна автоматизация
+    сбора, связывание объектов и приоритизация — это и есть Digital Shadow.</p>
+  </section>
+
+  <!-- 3 · PROBLEM -->
+  <section class="slide">
+    <div class="kicker rv">Проблема</div>
+    <h2 class="rv">Следы рассеяны по сотням площадок и не связаны</h2>
+    <div class="grid g2 rv">
+      <div class="card"><h3>Что ищем</h3><p>Вейпы, алкоголь и наркотики без акциза; вербовку дропов и обнал;
+      миксеры криптовалют; продажу дампов баз РК с ИИН.</p></div>
+      <div class="card"><h3>Почему вручную не работает</h3><p>Объём, обфускация лексики, постоянная смена доменов
+      и кошельков, смешение русского и казахского — аналитик тонет в шуме.</p></div>
+      <div class="card"><h3>Чего не хватает</h3><p>Единой картины: один кошелёк, домен или @ник всплывает в разных
+      объявлениях, но связь между ними не видна.</p></div>
+      <div class="card"><h3>Цена ошибки</h3><p>Пропущенная сеть дропов или утечка ПДн граждан — либо обратное:
+      поток ложных тревог и выгорание аналитиков.</p></div>
+    </div>
+  </section>
+
+  <!-- 4 · SOLUTION -->
+  <section class="slide">
+    <div class="kicker rv">Решение</div>
+    <h2 class="rv">От сырого объявления — к объяснимой находке</h2>
+    <p class="sub rv">Конвейер превращает текст в находку с уровнем угрозы и передаёт её на ручную проверку.
+    Система ранжирует риск, но не выносит обвинение.</p>
+    <ul class="rv" style="margin-top:24px">
+      <li><b>Автоматизация OSINT и DarkNet</b> — коллекторы из файлов, веб-страниц через Tor, RSS, DarkNet.</li>
+      <li><b>Граф скрытых связей</b> — объекты из разных источников сходятся в один узел Neo4j.</li>
+      <li><b>Риск-ориентированные сигналы</b> — взвешенный скоринг и приоритет угрозы.</li>
+      <li><b>Аналитик в цикле</b> — очередь триажа, ревью и объяснимое обоснование.</li>
+    </ul>
+  </section>
+
+  <!-- 5 · ARCHITECTURE -->
+  <section class="slide">
+    <div class="kicker rv">Архитектура · технологии</div>
+    <h2 class="rv">Сквозной путь и на чём построено</h2>
+    <div class="flow rv">
+      <span class="step a">Коллекторы<br><small>file · http/Tor · rss · darknet</small></span><span class="arr"></span>
+      <span class="step">Сущности<br><small>домены · кошельки · @ник · промо</small></span><span class="arr"></span>
+      <span class="step">Слои сигналов<br><small>лексикон · OSINT · крипто · утечки · семантика</small></span>
+    </div>
+    <div class="flow rv" style="margin-top:14px">
+      <span class="step g">Neo4j граф<br><small>узлы · повторяемость · кластеры</small></span><span class="arr"></span>
+      <span class="step">Скоринг + приоритет<br><small>риск · уверенность · источник</small></span><span class="arr"></span>
+      <span class="step a">Находка<br><small>категория · угроза · обоснование</small></span><span class="arr"></span>
+      <span class="step g">Postgres + триаж</span>
+    </div>
+    <div class="tags rv">
+      <span class="tag">Python 3.12</span><span class="tag">FastAPI · uvicorn</span><span class="tag">async / lifespan DI</span>
+      <span class="tag">Neo4j 5</span><span class="tag">Postgres 16 · SQLAlchemy · Alembic</span>
+      <span class="tag">Qdrant · e5-embeddings</span><span class="tag">scikit-learn</span><span class="tag">Docker Compose</span>
+    </div>
+    <p class="note rv">Детерминированный риск-движок с ML-добором. Сбой графа или БД не останавливает анализ (best-effort).</p>
+  </section>
+
+  <!-- 6 · DETECTION -->
+  <section class="slide">
+    <div class="kicker rv">Детекция</div>
+    <h2 class="rv">8 категорий угроз, лексикон ru/kk, анти-обфускация</h2>
+    <div class="grid g3 rv">
+      <div class="card"><h3>Категории</h3><p>вейпы · алкоголь · наркотики · дропы · крипто · утечки РК ·
+      контрафакт · поддельные документы.</p></div>
+      <div class="card"><h3>Анти-обфускация</h3><p>«к л а д» → «клад», гомоглифы латиница/кириллица; граница слова
+      бережёт «оклад» от ложного срабатывания.</p></div>
+      <div class="card"><h3>Семантика</h3><p>Близость к известным опасным объявлениям через Qdrant ловит
+      перефразировки, которые правила пропускают.</p></div>
+    </div>
+    <div class="tags rv">
+      <span class="tag">drug_slang 35</span><span class="tag">drop_recruitment 35</span>
+      <span class="tag">iin_dump_mention 45</span><span class="tag">bad_crypto_wallet 40</span>
+      <span class="tag">known_bad_entity 40</span><span class="tag">mixer_or_tumbler 30</span>
+      <span class="tag">similar_to_known_listing 25</span>
+    </div>
+  </section>
+
+  <!-- 7 · GRAPH -->
+  <section class="slide">
+    <div class="kicker rv">Графовый анализ · ядро ценности</div>
+    <h2 class="rv">Скрытые связи между объектами</h2>
+    <div class="grid g2 rv">
+      <div class="card"><h3>Один узел на сущность</h3><p>Ключи канонизируются (регистр, @, www, порт, путь) —
+      домен, кошелёк или @ник из разных объявлений сходятся в один узел Neo4j.</p></div>
+      <div class="card hl"><h3>⚠ Кросс-категорийные связи</h3><p>Один кошелёк или @ник в листинге наркотиков и в
+      вербовке дропов → кластер помечается кросс-категорийным. Это и есть признак организованной сети.</p></div>
+      <div class="card"><h3>Кластеры, вожак и риск сети</h3><p>Связные компоненты (union-find); «вожак» (hub) —
+      центральный узел по степени; риск актора = охват × степень в сети × кросс-категория.</p></div>
+      <div class="card"><h3>Объяснимость пути</h3><p>«Почему связаны»: кратчайший путь между двумя сущностями
+      с человекочитаемым обоснованием — аналитик видит основание связи, а не только факт.</p></div>
+    </div>
+    <p class="note rv">Извлечение кошельков покрывает BTC / ETH и TRON-TRC20 (USDT — типичная оплата в KZ
+    крипто-преступности): иначе теневые кошельки не доходили бы до графа.</p>
+  </section>
+
+  <!-- 7b · COLLECTION & ROBUSTNESS -->
+  <section class="slide">
+    <div class="kicker rv">Реальный сбор · устойчивость</div>
+    <h2 class="rv">Боевой сбор из разных источников</h2>
+    <div class="grid g3 rv">
+      <div class="card"><h3>Коллекторы</h3><p>Файлы-экспорты, публичные страницы (httpx, .onion через Tor),
+      RSS-ленты, paste-сайты с фильтром по утечкам РК и DarkNet-сегменты.</p></div>
+      <div class="card"><h3>Дедуп · инкремент</h3><p>seen-store по id и контентному хэшу — повторные прогоны
+      собирают только новое, без переанализа и шума в очереди.</p></div>
+      <div class="card"><h3>Фид опасных кошельков</h3><p>Ингест публичных abuse-баз (chainabuse / bitcoinabuse)
+      в badlist → сигнал bad_crypto_wallet на новых находках.</p></div>
+    </div>
+    <p class="note rv">Маскирование ПДн на всех путях: телефоны → маска, ИИН и карты не сохраняются как сущности.</p>
+  </section>
+
+  <!-- 8 · TRIAGE -->
+  <section class="slide">
+    <div class="kicker rv">Приоритизация · реагирование</div>
+    <h2 class="rv">Очередь триажа и объяснимость</h2>
+    <div class="grid g2 rv">
+      <div class="card"><h3>Уровень угрозы</h3><p>Риск × уверенность × вес источника (даркнет тяжелее clearweb)
+      + бонус за повторяемость в графе → приоритет от низкого до срочного.</p></div>
+      <div class="card"><h3>Очередь по убыванию угрозы</h3><p>Самое опасное сверху. Статусы: новое, в работе,
+      подтверждено, отклонено.</p></div>
+      <div class="card"><h3>Объяснимое обоснование</h3><p>Почему находка: совпавшие слова лексикона и три главных
+      вклада в скоринг. Не чёрный ящик.</p></div>
+      <div class="card"><h3>Аналитик в цикле</h3><p>Решение фиксируется. Система выявляет риск и передаёт на
+      проверку, а не выносит обвинение.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 · FLYWHEEL -->
+  <section class="slide">
+    <div class="kicker rv">Самообучение</div>
+    <h2 class="rv">Решения аналитика возвращаются в систему</h2>
+    <div class="flow rv">
+      <span class="step a">Подтверждение находки</span><span class="arr"></span>
+      <span class="step">Репутация индикаторов<br><small>счётчик abuse растёт</small></span><span class="arr"></span>
+      <span class="step g">Авто-список наблюдения</span><span class="arr"></span>
+      <span class="step a">known_bad_entity<br><small>вес 40 на будущих находках</small></span>
+    </div>
+    <div class="grid g2 rv" style="margin-top:24px">
+      <div class="card"><h3>Список наблюдения</h3><p>Отслеживаемые кошельки, домены и @ник; тип определяется
+      автоматически. Совпадение даёт сигнал watchlisted и рост приоритета.</p></div>
+      <div class="card"><h3>Активное обучение</h3><p>Подтверждённые и отклонённые ревью дообучают классификатор
+      категорий — система точнее со временем.</p></div>
+    </div>
+  </section>
+
+  <!-- 9b · UNIFIED CONSOLE -->
+  <section class="slide">
+    <div class="kicker rv">Единая консоль аналитика</div>
+    <h2 class="rv">Один рабочий стол на общем движке</h2>
+    <p class="sub rv">Digital Shadow и контент-антифрод AI Media Watch — два продукта на одном ядре
+    (сущности, risk-engine, общий граф Neo4j, Qdrant). Аналитик работает в одном окне.</p>
+    <div class="grid g3 rv" style="margin-top:22px">
+      <div class="card hl"><h3>Digital Shadow</h3><p>Анализ листинга → объяснимый отчёт; граф кластеров с
+      кросс-категорией и вожаком; очередь триажа; watchlist; объяснимость пути.</p></div>
+      <div class="card"><h3>Контент-антифрод</h3><p>Текст и ссылки; видео (Whisper + OCR кадров + детектор
+      дипфейка/голоса); запись звонка с микрофона → транскрипт и этапы.</p></div>
+      <div class="card"><h3>Живой мониторинг</h3><p>Поток входящих звонков/сообщений/объявлений в реальном
+      времени — каждый прогоняется через анализатор, высокий риск подсвечивается.</p></div>
+    </div>
+    <div class="tags rv">
+      <span class="tag">общий граф → кросс-продуктовые мосты</span><span class="tag">один risk-engine</span>
+      <span class="tag">Next.js · FastAPI</span><span class="tag">ru / kk / en</span>
+    </div>
+  </section>
+
+  <!-- 10 · METRICS -->
+  <section class="slide">
+    <div class="kicker rv">Качество детекции</div>
+    <h2 class="rv">Точность и низкий шум для аналитика</h2>
+    <div class="grid g3 rv">
+      <div class="card" style="text-align:center"><div class="num">0.98</div>
+        <div class="cap">macro-F1 классификации категорий угроз</div></div>
+      <div class="card hl"><h3>Низкий шум</h3><p>Нет ложных тревог на легальных контрпримерах: лексикон с границей
+      слова бережёт легальную продажу от ложных срабатываний.</p></div>
+      <div class="card"><h3>Полнота сигналов</h3><p>Высокое покрытие ожидаемых риск-сигналов — ключевые индикаторы
+      угрозы не теряются.</p></div>
+    </div>
+    <p class="note rv">Детерминированный риск-движок: каждое срабатывание объяснимо и воспроизводимо — аналитик
+    видит основание, а не вердикт чёрного ящика.</p>
+  </section>
+
+  <!-- 11 · OUTRO -->
+  <section class="slide">
+    <div class="kicker rv">Итог · дорожная карта · право</div>
+    <h2 class="rv">Что готово и куда дальше</h2>
+    <div class="grid g2 rv">
+      <div class="card"><h3>Готово</h3><ul style="margin-top:2px;gap:8px">
+        <li>коллекторы (file · http/Tor · rss · paste) + дедуп</li>
+        <li>8 категорий, ru/kk, анти-обфускация, TRON-кошельки</li>
+        <li>граф: кросс-категория, вожак, скоринг, путь «почему»</li>
+        <li>триаж, ревью, обоснование, самообучение</li>
+        <li>единая консоль + честные метрики на hold-out</li></ul></div>
+      <div class="card"><h3>Дорожная карта</h3><ul style="margin-top:2px;gap:8px">
+        <li>парсеры конкретных площадок (OLX, Telegram-каналы)</li>
+        <li>цепочная крипто-аналитика (кластеризация адресов)</li>
+        <li>непрерывный сбор по расписанию</li>
+        <li>усиление классификатора категорий</li></ul></div>
+    </div>
+    <div class="card hl rv" style="margin-top:14px"><h3>Правовая рамка и заказчик</h3>
+      <p>Только публичные источники; реальные ПДн не храним (маски и хэши). Система выявляет риск и передаёт
+      на ручную проверку, не выносит обвинение. Заказчик — финансовый мониторинг и AML банков.</p>
+      <div class="src">Источники данных: Finprom.kz, Ranking.kz, Informburo.kz, Astana Times, Orda.kz, RUSI, Outseer</div></div>
+  </section>
+
+</div>
+
+<div class="dots" id="dots"></div>
+<div class="nav">
+  <span class="count" id="count">01 / 13</span>
+  <button onclick="go(idx-1)">Назад</button>
+  <button onclick="go(idx+1)">Далее</button>
+</div>
+<div class="foot">стрелки или пробел — листать</div>
+
+<script>
+/* ---------- живой граф-фон ---------- */
+const cv=document.getElementById('net'),ctx=cv.getContext('2d');
+let W,H,pts;
+function resize(){W=cv.width=innerWidth;H=cv.height=innerHeight;
+  const n=Math.min(90,Math.floor(W*H/22000));
+  pts=Array.from({length:n},()=>({x:Math.random()*W,y:Math.random()*H,
+    vx:(Math.random()-.5)*.35,vy:(Math.random()-.5)*.35,r:Math.random()*1.6+.8}));}
+resize();addEventListener('resize',resize);
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  for(let i=0;i<pts.length;i++){const p=pts[i];p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0||p.x>W)p.vx*=-1; if(p.y<0||p.y>H)p.vy*=-1;
+    for(let j=i+1;j<pts.length;j++){const q=pts[j],dx=p.x-q.x,dy=p.y-q.y,d=Math.hypot(dx,dy);
+      if(d<140){ctx.strokeStyle='rgba(90,140,220,'+(1-d/140)*.22+')';ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();}}
+    ctx.fillStyle='rgba(120,170,255,.7)';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}
+  requestAnimationFrame(draw);
+}draw();
+
+/* ---------- навигация + reveal + счётчики ---------- */
+const slides=[...document.querySelectorAll('.slide')];
+const dotsBox=document.getElementById('dots');
+let idx=0;
+slides.forEach((_,i)=>{const d=document.createElement('div');d.className='dot'+(i?'':' on');
+  d.onclick=()=>go(i);dotsBox.appendChild(d)});
+const dots=[...dotsBox.children];
+const pad=n=>String(n).padStart(2,'0');
+
+function animateNums(slide){
+  slide.querySelectorAll('[data-num]').forEach(el=>{
+    const target=parseFloat(el.dataset.num),dec=parseInt(el.dataset.dec||'0');
+    const t0=performance.now(),dur=1100;
+    function tick(t){const k=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-k,3);
+      el.textContent=(target*e).toFixed(dec);if(k<1)requestAnimationFrame(tick);}
+    requestAnimationFrame(tick);
+  });
+}
+function go(n){
+  idx=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,i)=>s.classList.toggle('on',i===idx));
+  dots.forEach((d,i)=>d.classList.toggle('on',i===idx));
+  document.getElementById('count').textContent=pad(idx+1)+' / '+pad(slides.length);
+  document.getElementById('bar').style.width=((idx+1)/slides.length*100)+'%';
+  animateNums(slides[idx]);
+}
+addEventListener('keydown',e=>{
+  if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){e.preventDefault();go(idx+1)}
+  if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();go(idx-1)}
+  if(e.key==='Home')go(0); if(e.key==='End')go(slides.length-1);
+});
+go(0);
+</script>
+</body>
+</html>

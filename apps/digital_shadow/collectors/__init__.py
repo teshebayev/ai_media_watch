@@ -2,11 +2,13 @@
 
 from .base import Collector, RawItem
 from .darknet_mock import DarknetMockCollector
+from .demo_clusters import DemoClusterCollector
 from .file_collector import FileCollector
 from .http_page import HttpPageCollector
+from .paste_sites import PasteSiteCollector
 from .rss import RssCollector
 
 __all__ = [
-    "Collector", "RawItem", "DarknetMockCollector",
-    "FileCollector", "HttpPageCollector", "RssCollector",
+    "Collector", "RawItem", "DarknetMockCollector", "DemoClusterCollector",
+    "FileCollector", "HttpPageCollector", "RssCollector", "PasteSiteCollector",
 ]

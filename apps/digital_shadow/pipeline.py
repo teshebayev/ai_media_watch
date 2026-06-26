@@ -66,12 +66,18 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
             signals.append("similar_to_known_listing")
     signals = list(dict.fromkeys(signals))
 
-    # 3) граф: upsert сущностей + повторяемость (скрытые связи между источниками)
+    # категорию определяем ДО графа — чтобы записать её в узел ShadowItem
+    # (нужно для кросс-категорийного анализа). Сигналы, влияющие на категорию
+    # (darknet_listing и лексикон), уже посчитаны; graph_entity_reuse на категорию не влияет.
+    category = taxonomy.classify_category(signals, lex_categories)
+
+    # 3) граф: upsert сущностей (+ category/source_type в узел) + повторяемость
     graph_reuse = 0
     if driver is not None:
         try:
             await graph_service.upsert_entities(
-                driver, item.id, entities, source_label="ShadowItem")
+                driver, item.id, entities, source_label="ShadowItem",
+                node_props={"category": category, "source_type": item.source_type})
             for field in _REUSE_FIELDS:
                 for value in ent_dict.get(field, []):
                     graph_reuse += await graph_service.entity_reuse(driver, value, kind=field)
@@ -90,7 +96,6 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
         source_type=item.source_type,
         graph_reuse=graph_reuse,
     )
-    category = taxonomy.classify_category(signals, lex_categories)
 
     # 4b) ML-fallback: правила не определили категорию → спросить обученный классификатор
     #     (только при SHADOW_ML=1 и наличии модели; по умолчанию выключено).
@@ -111,6 +116,7 @@ async def analyze_item(item: ShadowItem, *, driver=None, watchlist: set[str] | N
         priority=prio["priority"],
         threat_score=prio["threat_score"],
         signals=signals,
+        breakdown=scored["breakdown"],
         entities=entities,
         wallet_risks=wallet_risks,
         evidence=_build_evidence(item, text, scored["breakdown"]),
@@ -128,5 +134,7 @@ def _build_evidence(item: ShadowItem, text: str, breakdown: list[dict]) -> list[
         ev.append("лексикон: " + ", ".join(terms[:8]))
     top = sorted(breakdown, key=lambda b: b["weight"], reverse=True)[:3]
     if top:
-        ev.append("вклад: " + ", ".join(f"{b['signal']} (+{b['weight']})" for b in top))
+        # человекочитаемое объяснение топ-вклада: «<описание> (+вес)»
+        ev.append("почему: " + "; ".join(
+            f"{taxonomy.describe_signal(b['signal'])} (+{b['weight']})" for b in top))
     return ev

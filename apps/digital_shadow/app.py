@@ -14,7 +14,8 @@ upsert в общий граф + повторяемость → персист в
   GET  /shadow/health           — статус + подключён ли граф/БД
   POST /shadow/analyze          — анализ одного элемента (ShadowItem) → ShadowFinding (+граф +БД)
   POST /shadow/collect/mock     — синтетические даркнет-листинги → находки (демо, по убыв. угрозы)
-  GET  /shadow/clusters         — кластеры связанных акторов (мосты Media↔Shadow)
+  GET  /shadow/actors/scored    — риск-скоринг акторов (охват × степень в сети × кросс-продукт)
+  GET  /shadow/clusters         — кластеры связанных акторов + риск сети и «вожак» (hub)
   GET  /shadow/graph            — обзор теневого графа (общий Neo4j) для визуализации
   GET  /shadow/sessions         — последние сохранённые находки (из Postgres)
 """
@@ -34,7 +35,10 @@ from pydantic import BaseModel  # noqa: E402
 
 from apps.digital_shadow import actors as actors_svc  # noqa: E402
 from apps.digital_shadow import persistence  # noqa: E402
-from apps.digital_shadow.collectors import DarknetMockCollector  # noqa: E402
+from apps.digital_shadow.collectors import (  # noqa: E402
+    DarknetMockCollector,
+    DemoClusterCollector,
+)
 from apps.digital_shadow.pipeline import analyze_item  # noqa: E402
 from apps.digital_shadow.schemas import ShadowFinding, ShadowItem  # noqa: E402
 from backend.app.clients.neo4j import ensure_constraints, make_neo4j_driver  # noqa: E402
@@ -126,6 +130,24 @@ async def collect_mock(query: str | None = None) -> dict:
     return {"count": len(findings), "findings": [f.model_dump() for f in findings]}
 
 
+@app.post("/shadow/collect/demo")
+async def collect_demo(query: str | None = None) -> dict:
+    """Демо для графа: листинги с общими индикаторами → кластеры по торговлям
+    (вейпы/алкоголь/наркотики/дропы/утечки) + кросс-категорийный мост (наркотики↔дропы)."""
+    driver = getattr(app.state, "neo4j", None)
+    qdrant = getattr(app.state, "qdrant", None)
+    wl = await persistence.watchlist_values()
+    bad = await persistence.bad_entity_values()
+    findings: list[ShadowFinding] = []
+    async for raw in DemoClusterCollector().collect(query):
+        f = await analyze_item(raw, driver=driver, watchlist=wl, bad_entities=bad, qdrant=qdrant)
+        await persistence.save_finding(
+            f, platform=raw.platform, language=raw.language, text=raw.text)
+        findings.append(f)
+    findings.sort(key=lambda f: f.threat_score, reverse=True)
+    return {"count": len(findings), "findings": [f.model_dump() for f in findings]}
+
+
 # ── Триаж / ревью ────────────────────────────────────────────────────────────
 @app.get("/shadow/queue")
 async def queue(status: str | None = None, limit: int = 50) -> dict:
@@ -179,6 +201,18 @@ async def actors(limit: int = 20, min_uses: int = 2) -> dict:
         getattr(app.state, "neo4j", None), limit=limit, min_uses=min_uses)}
 
 
+@app.get("/shadow/actors/scored")
+async def actors_scored(
+    limit: int = Query(20, ge=1, le=200),
+    min_uses: int = Query(2, ge=1, le=100),
+    scan: int = Query(500, ge=1, le=5000),
+) -> dict:
+    """Скоринг акторов: риск отдельной сущности по охвату (uses) + степени в сети
+    (co_actors) + разнообразию источников + кросс-продуктовости. Сортировка по actor_risk."""
+    return {"actors": await actors_svc.actor_scores(
+        getattr(app.state, "neo4j", None), limit=limit, min_uses=min_uses, scan=scan)}
+
+
 @app.get("/shadow/cross")
 async def cross(limit: int = 50) -> dict:
     """Только кросс-продуктовые сущности: связывают контент (Media) и теневые источники (Shadow)."""
@@ -199,18 +233,66 @@ async def clusters(
     return {"clusters": cl, "count": len(cl)}
 
 
+@app.get("/shadow/path")
+async def path(
+    a: str = Query(..., min_length=1, description="сущность A (домен/кошелёк/@telegram)"),
+    b: str = Query(..., min_length=1, description="сущность B"),
+    max_hops: int = Query(5, ge=1, le=6),
+) -> dict:
+    """Объяснимость связи: кратчайший путь между двумя сущностями + «почему связаны»."""
+    driver = getattr(app.state, "neo4j", None)
+    if driver is None:
+        return {"found": False, "explanation": ["граф выключен (ENABLE_GRAPH=false)"],
+                "nodes": [], "edges": []}
+    try:
+        return await graph_service.explain_link(driver, a, b, max_hops=max_hops)
+    except Exception as e:  # noqa: BLE001 — Neo4j может быть недоступен
+        return {"found": False, "explanation": [f"граф недоступен: {type(e).__name__}"],
+                "nodes": [], "edges": []}
+
+
+def _merge_graphs(*graphs: dict) -> dict:
+    """Слить несколько nodes/edges-подграфов в один (дедуп узлов по id, рёбер по from/to/label)."""
+    nodes: dict[str, dict] = {}
+    edges: dict[tuple, dict] = {}
+    for g in graphs:
+        for n in g.get("nodes", []):
+            nodes[n["id"]] = n
+        for e in g.get("edges", []):
+            edges[(e["from"], e["to"], e.get("label"))] = e
+    return {"nodes": list(nodes.values()), "edges": list(edges.values())}
+
+
 @app.get("/shadow/graph")
-async def graph(value: str | None = None, limit: int = 150) -> dict:
-    """Теневой граф (общий Neo4j): окрестность сущности или обзор кластеров."""
+async def graph(value: str | None = None, limit: int = 200) -> dict:
+    """Теневой граф (общий Neo4j). Без value — теневые листинги (ShadowItem + их сущности,
+    включая кошельки) ОБЪЕДИНЁННЫЕ с общим обзором кластеров (casino-x.com и пр.): видны и
+    новые теневые данные, и старые кластеры. С value — окрестность конкретной сущности."""
     driver = getattr(app.state, "neo4j", None)
     if driver is None:
         return {"nodes": [], "edges": [], "note": "граф выключен (ENABLE_GRAPH=false)"}
     try:
         if value:
             return await graph_service.neighborhood(driver, value, limit=limit)
-        return await graph_service.overview(driver, limit=limit)
+        shadow = await graph_service.source_subgraph(driver, "ShadowItem", limit=limit)
+        media = await graph_service.overview(driver, limit=limit)
+        return _merge_graphs(shadow, media)
     except Exception as e:  # noqa: BLE001 — Neo4j может быть недоступен
         return {"nodes": [], "edges": [], "note": f"граф недоступен: {type(e).__name__}"}
+
+
+@app.get("/shadow/signals")
+async def signals_legend() -> dict:
+    """Справочник риск-сигналов: код · вес · человекочитаемое объяснение (легенда для UI)."""
+    from apps.digital_shadow import taxonomy
+    from apps.digital_shadow.prioritization import _weight
+
+    items = [
+        {"signal": s, "weight": _weight(s), "description": d}
+        for s, d in taxonomy.SIGNAL_DESCRIPTIONS.items()
+    ]
+    items.sort(key=lambda x: x["weight"], reverse=True)
+    return {"signals": items}
 
 
 @app.get("/shadow/sessions")

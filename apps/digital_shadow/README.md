@@ -30,8 +30,9 @@ apps/digital_shadow/
 │   ├── http_page.py       публичные страницы (httpx; .onion через --proxy) [готово]
 │   ├── rss.py             RSS/Atom-ленты (stdlib xml)                   [готово]
 │   ├── darknet_mock.py    синтетические .onion-листинги для демо        [готово]
-│   ├── clearweb.py        парсеры конкретных площадок                   [TODO]
-│   └── paste_sites.py     paste/leak-мониторинг по фидам                [TODO]
+│   ├── paste_sites.py     paste/leak-мониторинг (фильтр по утечкам РК)  [готово]
+│   └── clearweb.py        парсеры конкретных площадок                   [TODO]
+├── seen_store.py      дедуп/инкрементальный сбор (id + контентный хэш)
 ├── collect.py         CLI: коллектор → пайплайн → граф+БД → топ угроз
 ├── app.py             автономный FastAPI (/shadow/*), отдельный порт
 ├── seed_data.py       генератор синтетического seed → data/shadow/seed.jsonl
@@ -47,8 +48,20 @@ apps/digital_shadow/
 ```bash
 make shadow-collect ARGS="--file data/shadow/inbox.jsonl"   # экспортированные листинги
 make shadow-collect ARGS="--rss https://site/feed.xml"      # RSS-лента
+make shadow-collect ARGS="--paste https://paste/site/raw1"  # пасты → фильтр по утечкам БД РК
 make shadow-collect ARGS="--url https://page --proxy socks5h://127.0.0.1:9050"  # страница / Tor
 make shadow-collect ARGS="--mock"                            # демо
+```
+**Инкрементальный сбор:** повторные прогоны пропускают уже виденные элементы (по id и
+контентному хэшу, `data/shadow/seen.txt`). Выключить — `ARGS="... --no-dedup"`.
+
+**Кросс-категория и объяснимость связей (граф):**
+```bash
+curl -X POST localhost:8090/shadow/collect/demo  # наполнить граф демо-кластерами по торговлям
+curl "localhost:8090/shadow/clusters"          # кластеры: cross_category, hub («вожак»), risk
+curl "localhost:8090/shadow/actors/scored"     # скоринг акторов: actor_risk, co_actors, cross_category
+curl "localhost:8090/shadow/path?a=@drop_kz&b=TQn9...Kcbk2v"   # почему две сущности связаны
+curl "localhost:8090/shadow/signals"           # легенда: код · вес · описание сигнала
 ```
 
 **Классификатор категорий (поверх правил):**

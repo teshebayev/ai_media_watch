@@ -84,6 +84,7 @@
         <option value="paste">paste / leak-форум</option>
       </select>
     </div>
+    <div id="samples" class="muted" style="margin-bottom:8px">Демо-примеры (клик — вставить):</div>
     <textarea id="text" placeholder="Вставьте текст объявления/листинга/поста…
 Пример: Ищем дропов, карта в аренду за %, приём переводов, telegram @x, оплата USDT"></textarea>
     <div class="row"><button class="go" id="btnAnalyze" onclick="analyze()">Анализировать</button></div>
@@ -125,6 +126,7 @@
   <!-- АКТОРЫ -->
   <section class="view" id="v-actors">
     <div class="row"><button class="go" onclick="loadActors()">Обновить</button>
+      <label class="muted"><input type="checkbox" id="scoredActors" onchange="loadActors()"> риск-скоринг (степень в сети)</label>
       <label class="muted"><input type="checkbox" id="crossOnly" onchange="loadActors()"> только кросс-продукт (мост Media↔Shadow)</label></div>
     <div id="actorsOut"></div>
   </section>
@@ -143,7 +145,16 @@
         style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
       <button class="go" onclick="loadGraph()">Показать</button>
       <button class="go" onclick="loadClusters()" title="Связные компоненты по со-упоминанию">Кластеры</button>
+      <button class="go" onclick="loadDemoClusters()" title="Наполнить граф демо-листингами по торговлям (вейпы/алко/наркотики/дропы/утечки)">Демо-кластеры</button>
     </div>
+    <div class="row" style="margin-top:8px">
+      <input id="pathA" placeholder="сущность A"
+        style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
+      <input id="pathB" placeholder="сущность B"
+        style="flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:13px">
+      <button class="go" onclick="loadPath()" title="Кратчайший путь и объяснение связи">Почему связаны?</button>
+    </div>
+    <div id="pathOut" class="muted" style="margin-top:8px"></div>
     <div id="graph"></div>
     <div id="graphInfo" class="muted" style="margin-top:8px"></div>
     <div id="clusters" style="margin-top:10px"></div>
@@ -287,12 +298,26 @@ async function delWatch(value){
 async function loadActors(){
   $('actorsOut').innerHTML='<p class="muted">загрузка…</p>';
   try{
-    const path=$('crossOnly').checked?'/shadow/cross?limit=50':'/shadow/actors?limit=30';
+    const scored=$('scoredActors').checked;
+    const path=$('crossOnly').checked?'/shadow/cross?limit=50'
+      :(scored?'/shadow/actors/scored?limit=30':'/shadow/actors?limit=30');
     const j=await (await fetch(api()+path)).json();
     const list=j.actors||j.cross||[];
+    const cross=a=>a.cross_product?'<span class="pill crit">cross-product</span>':esc((a.kinds||[]).join(', '));
+    const xcat=a=>a.cross_category?'<span class="pill critical" title="засветился в разных видах активности">⚠ кросс-кат</span>':esc((a.categories||[]).join(' · '));
+    if(scored && !$('crossOnly').checked){
+      const rows=list.map(a=>`<tr>
+        <td><b>${a.actor_risk}</b></td><td>${esc(a.type)}</td><td class="mono">${esc(a.entity)}</td>
+        <td>${a.uses}</td><td>${a.co_actors}</td><td>${xcat(a)}</td><td>${cross(a)}</td></tr>`).join('');
+      $('actorsOut').innerHTML=rows?
+        `<p class="muted">actor_risk = охват (uses) × степень в сети (co_actors) × кросс-категория × кросс-продукт</p>
+         <table><tr><th>Риск</th><th>Тип</th><th>Сущность</th><th>Повторов</th><th>Связей</th><th>Категории</th><th>Источники</th></tr>${rows}</table>`:
+        '<p class="muted">нет данных (граф пуст / выключен)</p>';
+      return;
+    }
     const rows=list.map(a=>`<tr>
       <td>${esc(a.type)}</td><td class="mono">${esc(a.entity)}</td><td>${a.uses}</td>
-      <td>${a.cross_product?'<span class="pill crit">cross-product</span>':esc((a.kinds||[]).join(', '))}</td></tr>`).join('');
+      <td>${cross(a)}</td></tr>`).join('');
     $('actorsOut').innerHTML=rows?
       `<table><tr><th>Тип</th><th>Сущность</th><th>Повторов</th><th>Источники</th></tr>${rows}</table>`:
       '<p class="muted">нет данных (граф пуст / выключен)</p>';
@@ -317,6 +342,28 @@ async function loadGraph(){
   }catch(e){$('graphInfo').innerHTML=`<span class="err">${e.message}</span>`}
 }
 
+async function loadPath(){
+  const a=$('pathA').value.trim(), b=$('pathB').value.trim();
+  if(!a||!b){$('pathOut').innerHTML='<span class="err">укажите обе сущности</span>';return;}
+  $('pathOut').textContent='поиск пути…';
+  try{
+    const j=await (await fetch(api()+`/shadow/path?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`)).json();
+    const expl=(j.explanation||[]).map(s=>`<li>${esc(s)}</li>`).join('');
+    const head=j.found?`<b style="color:var(--green)">Связь найдена</b> (${j.hops} шаг(ов))`:`<b class="muted">Связь не найдена</b>`;
+    $('pathOut').innerHTML=`${head}<ul style="margin:6px 0 0 18px;font-size:13px">${expl}</ul>`;
+    // подсветить путь в графе
+    if(j.found && typeof vis!=='undefined'){
+      const nodes=(j.nodes||[]).map(n=>({id:n.id,label:(n.label||n.id),title:`${n.type||''}: ${n.label||n.id}`,
+        color:{background:'#3a1d24',border:'#ff5d6c'}}));
+      const edges=(j.edges||[]).map(e=>({from:e.from,to:e.to,label:e.label||'',arrows:'to',
+        color:{color:'#ff5d6c'},font:{size:9,color:'#ffb454'}}));
+      network=new vis.Network($('graph'),{nodes:new vis.DataSet(nodes),edges:new vis.DataSet(edges)},{
+        nodes:{shape:'dot',size:14,font:{color:'#e6ecf5',size:12}},physics:{stabilization:true}});
+      $('graphInfo').textContent=`путь: ${nodes.length} узлов · ${edges.length} рёбер`;
+    }
+  }catch(e){$('pathOut').innerHTML=`<span class="err">${e.message}</span>`}
+}
+
 async function loadClusters(){
   $('clusters').textContent='загрузка…';
   try{
@@ -325,14 +372,60 @@ async function loadClusters(){
     if(!cl.length){$('clusters').innerHTML='<p class="muted">кластеров нет (нужны сущности с повторяемостью ≥2)</p>';return;}
     $('clusters').innerHTML=cl.map(c=>{
       const bridge=c.cross_product?'<span style="color:#ffb454">🔗 мост Media↔Shadow</span>':'';
-      const ents=c.entities.map(e=>`<code>${esc(e.value)}</code> <span class="muted">(${esc(e.type)})</span>`).join(', ');
+      const xcat=c.cross_category?'<span class="pill critical" title="общий индикатор связывает разные виды нелегальной активности">⚠ кросс-категория</span>':'';
+      const cats=(c.categories||[]).length?`<span class="muted">категории:</span> ${(c.categories||[]).map(esc).join(' · ')}`:'';
+      const hub=c.hub?`<span class="muted">вожак:</span> <code>${esc(c.hub.value)}</code> <span class="muted">(${esc(c.hub.type)}, ${c.hub.sources} источ)</span>`:'';
+      const risk=c.risk!=null?`<span class="pill ${c.risk>=60?'critical':c.risk>=35?'high':'medium'}">риск ${c.risk}</span>`:'';
+      const ents=c.entities.map(e=>{
+        const isHub=c.hub&&e.value===c.hub.value&&e.type===c.hub.type;
+        const v=isHub?`<b>${esc(e.value)}</b>`:esc(e.value);
+        return `<code>${v}</code> <span class="muted">(${esc(e.type)})</span>`;}).join(', ');
       return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--bg2)">
-        <div><b>${c.size}</b> сущ · <b>${c.sources}</b> источ · ${c.kinds.join(', ')} ${bridge}</div>
+        <div>${risk} ${xcat} <b>${c.size}</b> сущ · <b>${c.sources}</b> источ · ${c.kinds.join(', ')} ${bridge}</div>
+        ${cats?`<div style="margin-top:4px;font-size:13px">${cats}</div>`:''}
+        ${hub?`<div style="margin-top:4px;font-size:13px">${hub}</div>`:''}
         <div style="margin-top:6px;font-size:13px">${ents}</div></div>`;
     }).join('');
   }catch(e){$('clusters').innerHTML=`<span class="err">${e.message}</span>`}
 }
 
+// ── Демо-примеры для анализа (клик вставляет текст + тип источника) ──────────
+const SAMPLES=[
+  {label:'🚬 Вейпы (контрабанда)', src:'clearweb',
+   text:'Elf bar оптом, жидкости без акциз, контрабанда, доставка по РК. Без документов. Пишите telegram @vape_opt_kz, оплата USDT TVa9Y2khEsLJW1ChVWFMSMeRDow5Kcbk2v.'},
+  {label:'🍾 Алкоголь (паленый/опт)', src:'clearweb',
+   text:'Паленый алкоголь оптом, спирт оптом, контрафактный алкоголь. Опт, без документов. telegram @alco_opt_kz.'},
+  {label:'💊 Наркотики (закладки)', src:'darknet',
+   text:'Закладки по городу, товар в наличии, реагент, соль. Оплата только USDT TDr9Y2khEsLJW1ChVWFMSMeRDow5Kcbk2v. Связь только session. Без документов.'},
+  {label:'🧑‍💼 Дропы (карта в аренду)', src:'clearweb',
+   text:'Ищем дропов: карта в аренду за процент, приём переводов и снять. Выгодная подработка. telegram @drop_team_kz.'},
+  {label:'🗄️ Утечка базы РК', src:'paste',
+   text:'Продам базу Казахстан: ФИО, ИИН, телефоны. Свежий дамп, пробив по запросу. Цена в USDT. Контакт @leak_seller_kz.'},
+  {label:'🪙 Крипто-отмыв (миксер)', src:'darknet',
+   text:'Чистая крипта, mixer/tumbler, отмыв. Оплата BTC bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh. session.'},
+  {label:'✅ Легальная розница (контрпример)', src:'clearweb',
+   text:'Продам вейп, новый, чек и гарантия, самовывоз. Розница, цена 15000 тенге.'},
+];
+function renderSamples(){
+  const box=$('samples'); if(!box) return;
+  box.innerHTML='Демо-примеры (клик — вставить): '+SAMPLES.map((s,i)=>
+    `<span class="tag" style="cursor:pointer" onclick="useSample(${i})" title="вставить и выбрать источник">${esc(s.label)}</span>`).join(' ');
+}
+function useSample(i){
+  const s=SAMPLES[i]; if(!s) return;
+  $('text').value=s.text; $('srcType').value=s.src;
+  $('analyzeOut').innerHTML='<p class="muted">пример вставлен — нажмите «Анализировать»</p>';
+}
+
+async function loadDemoClusters(){
+  $('clusters').textContent='наполняю граф демо-данными…';
+  try{
+    await fetch(api()+'/shadow/collect/demo',{method:'POST'});
+    await loadClusters();
+  }catch(e){$('clusters').innerHTML=`<span class="err">${e.message}</span>`}
+}
+
+renderSamples();
 checkHealth();
 </script>
 </body>

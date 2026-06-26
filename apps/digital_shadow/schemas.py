@@ -32,6 +32,7 @@ class ShadowFinding(BaseModel):
     priority: str = "low"                  # low | medium | high | urgent (из prioritization)
     threat_score: float = 0.0
     signals: list[str] = Field(default_factory=list)
+    breakdown: list[dict] = Field(default_factory=list)      # [{signal, weight}] — вклад в скоринг
     entities: Entities = Field(default_factory=Entities)
     wallet_risks: list[dict] = Field(default_factory=list)   # из crypto_risk
     evidence: list[str] = Field(default_factory=list)

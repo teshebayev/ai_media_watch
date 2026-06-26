@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аналитическое заключение · Digital Shadow</title>
+<style>
+  :root{ --ink:#13233b; --mut:#5a6b80; --line:#c7d2e0; --accent:#1f5fb0; --bad:#c0392b; --warn:#b8860b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#5a6678;font-family:"Times New Roman",Georgia,serif;color:#13233b}
+  /* ── экранная панель (не печатается) ── */
+  .toolbar{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:12px 18px;background:#0e1422;color:#eaf0fb;font-family:system-ui,Arial,sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+  .toolbar b{color:#21d4fd;letter-spacing:.06em}
+  .toolbar button{background:#1f5fb0;color:#fff;border:0;border-radius:7px;padding:8px 14px;font-size:13px;cursor:pointer}
+  .toolbar button.alt{background:#2b3650}
+  .toolbar button:hover{filter:brightness(1.1)}
+  .toolbar textarea{flex:1;min-width:220px;height:34px;border-radius:7px;border:1px solid #2b3650;background:#0b1120;color:#cfe0ff;
+    font-family:ui-monospace,monospace;font-size:12px;padding:6px 8px;resize:vertical}
+  .toolbar .hint{color:#93a3c2;font-size:12px;font-family:system-ui,Arial,sans-serif}
+
+  /* ── лист А4 ── */
+  .page{background:#fff;width:210mm;min-height:297mm;margin:22px auto;padding:20mm 18mm;
+    box-shadow:0 6px 40px rgba(0,0,0,.35);position:relative}
+  .stamp{position:absolute;top:16mm;right:16mm;border:2px solid var(--bad);color:var(--bad);
+    font-family:system-ui,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.08em;
+    padding:4px 10px;border-radius:4px;transform:rotate(-6deg);opacity:.8}
+
+  .approve{margin-left:auto;width:62mm;font-size:13px;line-height:1.45}
+  .approve .ttl{font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .head{display:flex;gap:20px;align-items:flex-start}
+  .org{font-size:13px;line-height:1.45;max-width:80mm}
+  .org b{font-size:15px}
+
+  h1{font-size:21px;text-align:center;margin:26px 0 4px;letter-spacing:.01em}
+  .docmeta{text-align:center;font-size:13px;color:#3a4a64;margin-bottom:22px}
+
+  h2{font-size:15px;border-bottom:1.5px solid var(--line);padding-bottom:5px;margin:20px 0 10px;
+    text-transform:uppercase;letter-spacing:.03em;color:#13233b}
+  p,li,td,th{font-size:13.5px;line-height:1.5}
+  .row{display:flex;gap:10px;margin:5px 0}
+  .row .k{width:54mm;color:#3a4a64;flex:none}
+  table{width:100%;border-collapse:collapse;margin:8px 0}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+  th{background:#eef3fa;font-size:12px;text-transform:uppercase;letter-spacing:.02em}
+  .pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:1px 10px;font-size:12px;
+    font-family:ui-monospace,monospace}
+  .pill.crit{border-color:var(--bad);color:var(--bad)}
+  .pill.warn{border-color:var(--warn);color:var(--warn)}
+  .mono{font-family:ui-monospace,monospace;font-size:12.5px}
+
+  /* заполняемые поля */
+  [contenteditable]{outline:none;border-bottom:1px dotted #8aa0bd;min-width:40px;padding:0 3px}
+  [contenteditable]:focus{background:#eef6ff;border-bottom-color:var(--accent)}
+  [contenteditable]:empty:before{content:attr(data-ph);color:#9fb0c6;font-style:italic}
+
+  ul.ev{list-style:none;padding:0;margin:6px 0}
+  ul.ev li{padding-left:16px;position:relative;margin:4px 0}
+  ul.ev li:before{content:'—';position:absolute;left:0;color:var(--accent)}
+
+  /* лист согласования */
+  .sign-tbl td{height:64px}
+  .sign-tbl .pos{font-weight:600}
+  .sign-line{display:block;border-bottom:1px solid #2a3a55;margin:26px 0 4px}
+  .sign-cap{font-size:10.5px;color:#5a6b80;text-align:center}
+  .approve-row td{background:#fbf7e8}
+
+  .route{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0}
+  .route label{display:flex;align-items:center;gap:7px;font-size:13px}
+  .route input{width:15px;height:15px}
+  .foot{margin-top:26px;border-top:1px solid var(--line);padding-top:10px;font-size:11.5px;color:#5a6b80;line-height:1.5}
+
+  @media print{
+    body{background:#fff}
+    .toolbar{display:none}
+    .page{box-shadow:none;margin:0;width:auto;min-height:auto;padding:14mm 14mm}
+    [contenteditable]{border-bottom:1px solid #aab8c9}
+    @page{size:A4;margin:12mm}
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <b>◆ DIGITAL SHADOW</b>
+  <span class="hint">Шаблон заключения. Заполните поля прямо в документе.</span>
+  <textarea id="json" placeholder='Вставьте JSON находки из консоли (ответ /shadow/analyze) и нажмите «Заполнить»'></textarea>
+  <button onclick="fillFromJson()">Заполнить из находки</button>
+  <button class="alt" onclick="window.print()">Печать / Сохранить PDF</button>
+</div>
+
+<div class="page">
+  <div class="stamp">КОНФИДЕНЦИАЛЬНО · ДСП</div>
+
+  <div class="head">
+    <div class="org">
+      <b contenteditable data-ph="Наименование организации">ТОО «Финансовый мониторинг»</b><br>
+      Подразделение OSINT / AML-аналитики<br>
+      <span class="mono">Digital Shadow · единая консоль аналитика</span>
+    </div>
+    <div class="approve">
+      <div class="ttl">Утверждаю</div>
+      <div>Генеральный директор</div>
+      <div style="margin-top:6px">_______________ / <span contenteditable data-ph="Ф.И.О.">&nbsp;</span> /</div>
+      <div class="sign-cap" style="text-align:left">подпись · «<span contenteditable data-ph="дд">&nbsp;</span>» <span contenteditable data-ph="месяц">&nbsp;</span> 20<span contenteditable data-ph="гг">&nbsp;</span> г.</div>
+    </div>
+  </div>
+
+  <h1>Аналитическое заключение по выявленному риск-сигналу</h1>
+  <div class="docmeta">
+    № <span contenteditable data-ph="000">&nbsp;</span> от «<span contenteditable data-ph="дд">&nbsp;</span>» <span contenteditable data-ph="месяц">&nbsp;</span> 20<span contenteditable data-ph="гг">&nbsp;</span> г.
+    · ID находки: <span id="f_id" class="mono" contenteditable data-ph="—">&nbsp;</span>
+  </div>
+
+  <h2>1. Объект анализа</h2>
+  <div class="row"><div class="k">Источник:</div><div><span id="f_src" contenteditable data-ph="darknet / clearweb / paste">&nbsp;</span> · <span id="f_url" class="mono" contenteditable data-ph="URL / .onion / paste-id">&nbsp;</span></div></div>
+  <div class="row"><div class="k">Категория угрозы:</div><div id="f_cat" contenteditable data-ph="напр. drug_trafficking">&nbsp;</div></div>
+  <div class="row"><div class="k">Уровень риска:</div><div><span id="f_level" class="pill crit" contenteditable data-ph="critical">&nbsp;</span> · риск-балл <span id="f_score" contenteditable data-ph="0">&nbsp;</span> / 100</div></div>
+  <div class="row"><div class="k">Приоритет / threat-score:</div><div><span id="f_prio" class="pill warn" contenteditable data-ph="urgent">&nbsp;</span> · <span id="f_threat" contenteditable data-ph="0">&nbsp;</span></div></div>
+
+  <h2>2. Выявленные индикаторы</h2>
+  <table>
+    <tr><th style="width:40mm">Тип</th><th>Значение (публичные индикаторы; ПДн — в маске)</th></tr>
+    <tr><td>Домены</td><td id="f_domains" class="mono" contenteditable data-ph="—">&nbsp;</td></tr>
+    <tr><td>Криптокошельки</td><td id="f_wallets" class="mono" contenteditable data-ph="—">&nbsp;</td></tr>
+    <tr><td>Telegram / контакты</td><td id="f_tg" class="mono" contenteditable data-ph="—">&nbsp;</td></tr>
+    <tr><td>Промокоды / прочее</td><td id="f_promo" class="mono" contenteditable data-ph="—">&nbsp;</td></tr>
+  </table>
+
+  <h2>3. Риск-сигналы и обоснование</h2>
+  <div class="row"><div class="k">Сработавшие сигналы:</div><div id="f_signals" class="mono" contenteditable data-ph="перечень сигналов">&nbsp;</div></div>
+  <p style="margin-top:8px;color:#3a4a64">Основания (что именно сработало):</p>
+  <ul class="ev" id="f_evidence"><li contenteditable data-ph="основание / совпавшие слова лексикона / вклад в скоринг">&nbsp;</li></ul>
+
+  <h2>4. Скрытые связи (графовый анализ)</h2>
+  <div class="row"><div class="k">Кластер / сеть:</div><div contenteditable data-ph="связные сущности, кросс-категория (наркотики↔дропы), вожак сети">&nbsp;</div></div>
+  <div class="row"><div class="k">Повторяемость:</div><div contenteditable data-ph="сущность всплывает в N источниках; кросс-продуктовый мост">&nbsp;</div></div>
+
+  <h2>5. Вывод аналитика и рекомендация</h2>
+  <p contenteditable data-ph="Краткий вывод: характер активности, степень обоснованности риска, предлагаемые действия (направить на проверку, поставить на наблюдение, эскалировать).">&nbsp;</p>
+
+  <h2>6. Лист согласования</h2>
+  <table class="sign-tbl">
+    <tr><th style="width:48mm">Роль</th><th style="width:60mm">Ф.И.О.</th><th style="width:40mm">Подпись</th><th>Дата</th></tr>
+    <tr><td class="pos">Подготовил — аналитик</td>
+        <td contenteditable data-ph="Ф.И.О.">&nbsp;</td>
+        <td><span class="sign-line"></span></td>
+        <td contenteditable data-ph="дд.мм.гггг">&nbsp;</td></tr>
+    <tr><td class="pos">Проверил — руководитель отдела</td>
+        <td contenteditable data-ph="Ф.И.О.">&nbsp;</td>
+        <td><span class="sign-line"></span></td>
+        <td contenteditable data-ph="дд.мм.гггг">&nbsp;</td></tr>
+    <tr class="approve-row"><td class="pos">УТВЕРДИЛ — генеральный директор</td>
+        <td contenteditable data-ph="Ф.И.О.">&nbsp;</td>
+        <td><span class="sign-line"></span></td>
+        <td contenteditable data-ph="дд.мм.гггг">&nbsp;</td></tr>
+  </table>
+
+  <h2>7. Направлено (маршрутизация)</h2>
+  <div class="route">
+    <label><input type="checkbox"> АФМ РК (финансовый мониторинг)</label>
+    <label><input type="checkbox"> Правоохранительные органы</label>
+    <label><input type="checkbox"> Банк / AML-подразделение</label>
+    <label><input type="checkbox"> Постановка на наблюдение (watchlist)</label>
+  </div>
+  <div class="row" style="margin-top:8px"><div class="k">Исходящий №:</div>
+    <div><span contenteditable data-ph="исх. №">&nbsp;</span> от «<span contenteditable data-ph="дд">&nbsp;</span>» <span contenteditable data-ph="месяц">&nbsp;</span> 20<span contenteditable data-ph="гг">&nbsp;</span> г.,
+    адресат: <span contenteditable data-ph="наименование органа">&nbsp;</span></div></div>
+
+  <div class="foot">
+    Документ сформирован системой Digital Shadow на основании анализа публичных источников.
+    Система выявляет риск-сигналы и передаёт материал на ручную проверку — <b>не выносит обвинение</b>.
+    Реальные персональные данные не хранятся (маски/хэши). Заключение носит аналитический характер;
+    процессуальные решения принимаются уполномоченными органами.
+  </div>
+</div>
+
+<script>
+function setText(id, v){ const el=document.getElementById(id); if(el && v!=null && String(v).length) el.textContent=String(v); }
+function joinArr(a){ return Array.isArray(a)? a.join(', ') : ''; }
+
+function fillFromJson(){
+  let f;
+  try { f = JSON.parse(document.getElementById('json').value.trim()); }
+  catch(e){ alert('Не удалось разобрать JSON находки:\n'+e.message); return; }
+  setText('f_id', f.id);
+  setText('f_src', f.source_type);
+  setText('f_url', f.source_url);
+  setText('f_cat', f.category);
+  setText('f_level', f.risk_level);
+  setText('f_score', f.risk_score);
+  setText('f_prio', f.priority);
+  setText('f_threat', f.threat_score);
+  const e = f.entities || {};
+  setText('f_domains', joinArr(e.domains));
+  setText('f_wallets', joinArr(e.crypto_wallets));
+  setText('f_tg', joinArr(e.telegram_usernames));
+  setText('f_promo', joinArr(e.promo_codes));
+  setText('f_signals', joinArr(f.signals));
+  // доказательства
+  const ev = Array.isArray(f.evidence) ? f.evidence : [];
+  const box = document.getElementById('f_evidence');
+  if (ev.length){
+    box.innerHTML = '';
+    ev.forEach(x=>{ const li=document.createElement('li'); li.setAttribute('contenteditable',''); li.textContent=x; box.appendChild(li); });
+  }
+  // подсветка уровня
+  const lv = document.getElementById('f_level');
+  lv.className = 'pill ' + (['critical','high'].includes(String(f.risk_level)) ? 'crit' : 'warn');
+}
+</script>
+</body>
+</html>

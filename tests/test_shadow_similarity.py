@@ -31,4 +31,6 @@ def test_evidence_has_lexicon_and_breakdown():
     f = asyncio.run(analyze_item(item, driver=None))
     joined = " | ".join(f.evidence)
     assert "лексикон:" in joined
-    assert "вклад:" in joined
+    # топ-вклады в риск — человекочитаемым описанием (объяснимость для аналитика)
+    assert "почему:" in joined
+    assert "(+" in joined            # с весами вклада
